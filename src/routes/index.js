@@ -25,5 +25,6 @@ router.use("/ai", require("./ai.routes"));
 router.use("/admin", require("./admin.routes"));
 router.use("/reviews", require("./reviews.routes"));
 router.use("/notifications", require("./notifications.routes"));
+router.use("/platform-settings", require("./platformSettings.routes"));
 
 module.exports = router;

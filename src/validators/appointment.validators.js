@@ -11,6 +11,7 @@ const bookAppointmentSchema = Joi.object({
   scheduledStart: Joi.date().iso().required(),
   scheduledEnd: Joi.date().iso().greater(Joi.ref("scheduledStart")).required(),
   bookingType: Joi.string().valid("scheduled", "instant").default("scheduled"),
+  parentAppointmentId: Joi.string().allow(null),
 });
 
 const rescheduleSchema = Joi.object({

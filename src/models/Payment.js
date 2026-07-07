@@ -12,7 +12,7 @@ const paymentSchema = new mongoose.Schema(
     },
     referenceId: { type: mongoose.Schema.Types.ObjectId, required: true, refPath: "referenceModel" },
     amount: { type: Number, required: true },
-    currency: { type: String, default: "usd" },
+    currency: { type: String, default: "inr" },
     stripePaymentIntentId: { type: String, index: true },
     stripeChargeId: String,
     status: { type: String, enum: Object.values(PAYMENT_STATUSES), default: PAYMENT_STATUSES.REQUIRES_PAYMENT },

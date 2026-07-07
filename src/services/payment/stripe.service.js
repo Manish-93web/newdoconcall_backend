@@ -11,9 +11,11 @@ function getClient() {
   return stripeClient;
 }
 
-async function createPaymentIntent({ amount, currency = "usd", metadata }) {
+async function createPaymentIntent({ amount, currency = "inr", metadata }) {
   const stripe = getClient();
-  // Stripe expects the smallest currency unit (cents for usd)
+  // All amounts in this app are quoted in ₹ (INR) in the UI — defaulting to "usd" here
+  // would silently charge cardholders in dollars for a rupee-denominated fee.
+  // Stripe expects the smallest currency unit (paise for inr, i.e. amount * 100).
   return stripe.paymentIntents.create({
     amount: Math.round(amount * 100),
     currency,
