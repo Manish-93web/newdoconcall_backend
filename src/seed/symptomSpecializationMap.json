@@ -1,0 +1,17 @@
+{
+  "fever": { "specializations": ["General Physician"], "conditions": ["Viral infection", "Flu"], "urgency": "low" },
+  "cough": { "specializations": ["General Physician", "Pulmonologist"], "conditions": ["Common cold", "Bronchitis"], "urgency": "low" },
+  "chest pain": { "specializations": ["Cardiologist"], "conditions": ["Angina", "Muscle strain"], "urgency": "high" },
+  "shortness of breath": { "specializations": ["Cardiologist", "Pulmonologist"], "conditions": ["Asthma", "Cardiac issue"], "urgency": "high" },
+  "headache": { "specializations": ["General Physician", "Neurologist"], "conditions": ["Tension headache", "Migraine"], "urgency": "low" },
+  "skin rash": { "specializations": ["Dermatologist"], "conditions": ["Allergic reaction", "Eczema"], "urgency": "low" },
+  "joint pain": { "specializations": ["Orthopedist", "Rheumatologist"], "conditions": ["Arthritis", "Sprain"], "urgency": "medium" },
+  "abdominal pain": { "specializations": ["Gastroenterologist", "General Physician"], "conditions": ["Indigestion", "Appendicitis"], "urgency": "medium" },
+  "sore throat": { "specializations": ["ENT Specialist", "General Physician"], "conditions": ["Pharyngitis", "Tonsillitis"], "urgency": "low" },
+  "toothache": { "specializations": ["Dentist"], "conditions": ["Cavity", "Gum infection"], "urgency": "medium" },
+  "vision blurring": { "specializations": ["Ophthalmologist"], "conditions": ["Refractive error", "Eye strain"], "urgency": "medium" },
+  "anxiety": { "specializations": ["Psychiatrist"], "conditions": ["Anxiety disorder", "Stress"], "urgency": "medium" },
+  "frequent urination": { "specializations": ["Urologist", "Endocrinologist"], "conditions": ["UTI", "Diabetes"], "urgency": "medium" },
+  "irregular periods": { "specializations": ["Gynecologist"], "conditions": ["Hormonal imbalance", "PCOS"], "urgency": "medium" },
+  "child fever": { "specializations": ["Pediatrician"], "conditions": ["Viral infection"], "urgency": "medium" }
+}

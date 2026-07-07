@@ -1,0 +1,29 @@
+const Joi = require("joi");
+const { APPOINTMENT_MODES } = require("../config/constants");
+
+const bookAppointmentSchema = Joi.object({
+  doctorId: Joi.string().required(),
+  clinicId: Joi.string().allow(null),
+  forFamilyMemberId: Joi.string().allow(null),
+  mode: Joi.string()
+    .valid(...Object.values(APPOINTMENT_MODES))
+    .required(),
+  scheduledStart: Joi.date().iso().required(),
+  scheduledEnd: Joi.date().iso().greater(Joi.ref("scheduledStart")).required(),
+  bookingType: Joi.string().valid("scheduled", "instant").default("scheduled"),
+});
+
+const rescheduleSchema = Joi.object({
+  scheduledStart: Joi.date().iso().required(),
+  scheduledEnd: Joi.date().iso().greater(Joi.ref("scheduledStart")).required(),
+});
+
+const cancelSchema = Joi.object({
+  reason: Joi.string().allow("").max(500),
+});
+
+const rejectSchema = Joi.object({
+  reason: Joi.string().allow("").max(500),
+});
+
+module.exports = { bookAppointmentSchema, rescheduleSchema, cancelSchema, rejectSchema };

@@ -1,0 +1,49 @@
+const Joi = require("joi");
+const { ROLES } = require("../config/constants");
+
+const identifierField = Joi.string().required();
+
+const registerSchema = Joi.object({
+  name: Joi.string().min(2).max(100).required(),
+  email: Joi.string().email().optional(),
+  phone: Joi.string()
+    .pattern(/^[0-9+\-\s]{7,15}$/)
+    .optional(),
+  password: Joi.string().min(6).required(),
+  role: Joi.string()
+    .valid(ROLES.PATIENT, ROLES.DOCTOR, ROLES.CLINIC_ADMIN)
+    .default(ROLES.PATIENT),
+})
+  .or("email", "phone")
+  .required();
+
+const otpRequestSchema = Joi.object({
+  identifier: identifierField,
+  purpose: Joi.string().valid("signup", "login", "reset").default("login"),
+});
+
+const otpVerifySchema = Joi.object({
+  identifier: identifierField,
+  purpose: Joi.string().valid("signup", "login", "reset").default("login"),
+  code: Joi.string().length(6).required(),
+  // required only when purpose = signup and the user doesn't exist yet
+  name: Joi.string().min(2).max(100).optional(),
+  role: Joi.string().valid(ROLES.PATIENT, ROLES.DOCTOR).optional(),
+});
+
+const loginSchema = Joi.object({
+  identifier: identifierField,
+  password: Joi.string().min(6).required(),
+});
+
+const refreshSchema = Joi.object({
+  refreshToken: Joi.string().required(),
+});
+
+module.exports = {
+  registerSchema,
+  otpRequestSchema,
+  otpVerifySchema,
+  loginSchema,
+  refreshSchema,
+};
