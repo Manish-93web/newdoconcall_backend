@@ -1,0 +1,34 @@
+# Self-hosted TURN server for DoconCall video/voice consultations.
+#
+# Deploy: on a Linux host with a public static IP (network_mode: host requires Linux —
+# this will NOT work on Docker Desktop for Windows/Mac). Open these ports on the host
+# firewall/security group: 3478/udp+tcp, 5349/udp+tcp, and 49160-49200/udp.
+#
+# Setup:
+#   1. cp .env.example .env   (in this folder) and set TURN_STATIC_SECRET to a long random value
+#   2. docker compose up -d
+#   3. In the backend's .env, set:
+#        TURN_URLS=turn:<this-host-public-ip>:3478
+#        TURN_STATIC_SECRET=<same value as above>
+#      (STUN_URLS can point at the same host: stun:<this-host-public-ip>:3478)
+services:
+  coturn:
+    image: coturn/coturn:4.6.2
+    container_name: doconcall-coturn
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      -n
+      --listening-port=3478
+      --tls-listening-port=5349
+      --min-port=49160
+      --max-port=49200
+      --realm=${TURN_REALM:-doconcall.local}
+      --use-auth-secret
+      --static-auth-secret=${TURN_STATIC_SECRET}
+      --no-cli
+      --no-multicast-peers
+      --stale-nonce=600
+      --fingerprint
+    volumes:
+      - ./certs:/etc/coturn/certs:ro

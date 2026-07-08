@@ -8,7 +8,7 @@ const symptomCheck = asyncHandler(async (req, res) => {
   const { symptoms } = req.body;
   if (!symptoms) throw new ApiError(400, "SYMPTOMS_REQUIRED", "symptoms text is required");
 
-  const result = checkSymptoms(symptoms);
+  const result = await checkSymptoms(symptoms);
   return ok(res, result);
 });
 

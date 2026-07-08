@@ -13,6 +13,7 @@ router.get("/mine", authenticate(), manageRoles, ctrl.listMine);
 router.post("/", authenticate(), manageRoles, validate(upsertClinicSchema), ctrl.create);
 router.get("/:id", ctrl.getOne);
 router.patch("/:id", authenticate(), manageRoles, validate(upsertClinicSchema), ctrl.update);
+router.get("/:id/analytics", authenticate(), manageRoles, ctrl.getAnalytics);
 router.get("/:id/doctors", ctrl.getDoctors);
 router.post("/:id/doctors", authenticate(), manageRoles, ctrl.addDoctor);
 router.delete("/:id/doctors/:doctorId", authenticate(), manageRoles, ctrl.removeDoctor);

@@ -5,6 +5,7 @@ const DoctorProfile = require("../models/DoctorProfile");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
 const { CONSULTATION_STATES, ROLES } = require("../config/constants");
+const { getIceServers } = require("../services/webrtc/iceServers.service");
 
 async function loadAppointmentForParticipant(appointmentId, user) {
   const appointment = await Appointment.findById(appointmentId);
@@ -54,6 +55,10 @@ const start = asyncHandler(async (req, res) => {
   return ok(res, session, "Resuming existing consultation session");
 });
 
+const iceServers = asyncHandler(async (req, res) => {
+  return ok(res, getIceServers(req.user.id));
+});
+
 const getOne = asyncHandler(async (req, res) => {
   const session = await ConsultationSession.findById(req.params.id).populate("appointment");
   if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
@@ -98,4 +103,4 @@ const end = asyncHandler(async (req, res) => {
   return ok(res, session, "Consultation ended");
 });
 
-module.exports = { start, getOne, getChatHistory, shareFile, end };
+module.exports = { start, getOne, getChatHistory, shareFile, end, iceServers };

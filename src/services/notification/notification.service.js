@@ -1,5 +1,4 @@
-const env = require("../../config/env");
-const ConsoleNotificationProvider = require("./console.provider");
+const CompositeNotificationProvider = require("./composite.provider");
 const Notification = require("../../models/Notification");
 const User = require("../../models/User");
 const { NOTIFICATION_CHANNELS } = require("../../config/constants");
@@ -7,14 +6,12 @@ const { createLogger } = require("../../utils/logger");
 
 const log = createLogger("notification:service");
 
+// CompositeNotificationProvider activates each real channel (Twilio/SendGrid/FCM)
+// independently the moment that channel's own credentials are configured in .env, and
+// transparently falls back to logging to the console per-channel otherwise — so with no
+// keys set at all (today's state) this is behaviorally identical to console-only.
 function resolveProvider() {
-  // NOTIFICATION_PROVIDER env selects the implementation; only "console" exists until
-  // real SMS/email/push credentials are configured (see .env.example).
-  switch (env.notificationProvider) {
-    case "console":
-    default:
-      return new ConsoleNotificationProvider();
-  }
+  return new CompositeNotificationProvider();
 }
 
 const provider = resolveProvider();

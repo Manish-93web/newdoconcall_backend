@@ -1,5 +1,6 @@
 const ClinicProfile = require("../models/ClinicProfile");
 const DoctorProfile = require("../models/DoctorProfile");
+const Appointment = require("../models/Appointment");
 const User = require("../models/User");
 const { geocodeAddress } = require("../services/maps/googleMaps.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
@@ -108,6 +109,52 @@ const removeDoctor = asyncHandler(async (req, res) => {
   return ok(res, null, "Doctor unlinked from clinic");
 });
 
+const getAnalytics = asyncHandler(async (req, res) => {
+  const clinic = await ClinicProfile.findById(req.params.id);
+  if (!clinic) throw new ApiError(404, "NOT_FOUND", "Clinic not found");
+  if (clinic.owner.toString() !== req.user.id && req.user.role !== ROLES.PLATFORM_ADMIN) {
+    throw new ApiError(403, "FORBIDDEN", "You do not manage this clinic");
+  }
+
+  const [appointmentsByStatus, appointmentsByMode, revenueAgg, doctorPerformance] = await Promise.all([
+    Appointment.aggregate([
+      { $match: { clinic: clinic._id } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
+    Appointment.aggregate([
+      { $match: { clinic: clinic._id } },
+      { $group: { _id: "$mode", count: { $sum: 1 } } },
+    ]),
+    Appointment.aggregate([
+      { $match: { clinic: clinic._id, status: "completed" } },
+      { $group: { _id: null, totalRevenue: { $sum: "$fee.amount" }, completedCount: { $sum: 1 } } },
+    ]),
+    Appointment.aggregate([
+      { $match: { clinic: clinic._id, status: "completed" } },
+      { $group: { _id: "$doctor", appointments: { $sum: 1 }, revenue: { $sum: "$fee.amount" } } },
+      { $sort: { revenue: -1 } },
+    ]),
+  ]);
+
+  const doctors = await DoctorProfile.find({ _id: { $in: doctorPerformance.map((d) => d._id) } }).populate(
+    "user",
+    "name"
+  );
+  const doctorNames = new Map(doctors.map((d) => [d._id.toString(), d.user?.name || "Unknown"]));
+
+  return ok(res, {
+    appointmentsByStatus,
+    appointmentsByMode,
+    revenue: revenueAgg[0] || { totalRevenue: 0, completedCount: 0 },
+    doctorPerformance: doctorPerformance.map((d) => ({
+      doctorId: d._id,
+      doctorName: doctorNames.get(d._id.toString()) || "Unknown",
+      appointments: d.appointments,
+      revenue: d.revenue,
+    })),
+  });
+});
+
 const getStaff = asyncHandler(async (req, res) => {
   const clinic = await ClinicProfile.findById(req.params.id).populate({
     path: "staff",
@@ -129,4 +176,5 @@ module.exports = {
   getStaff,
   addDoctor,
   removeDoctor,
+  getAnalytics,
 };

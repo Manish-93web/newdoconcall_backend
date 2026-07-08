@@ -16,6 +16,7 @@ const createBookingSchema = Joi.object({
 
 const updateStatusSchema = Joi.object({
   status: Joi.string().valid("booked", "sample_collected", "processing", "report_ready", "cancelled").required(),
+  reportFile: Joi.string().when("status", { is: "report_ready", then: Joi.required() }),
 });
 
 module.exports = { createBookingSchema, updateStatusSchema };

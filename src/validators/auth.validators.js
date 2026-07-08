@@ -40,10 +40,23 @@ const refreshSchema = Joi.object({
   refreshToken: Joi.string().required(),
 });
 
+const resetPasswordSchema = Joi.object({
+  identifier: identifierField,
+  code: Joi.string().length(6).required(),
+  newPassword: Joi.string().min(6).required(),
+});
+
+const googleLoginSchema = Joi.object({
+  idToken: Joi.string().required(),
+  role: Joi.string().valid(ROLES.PATIENT, ROLES.DOCTOR).optional(),
+});
+
 module.exports = {
   registerSchema,
   otpRequestSchema,
   otpVerifySchema,
   loginSchema,
   refreshSchema,
+  resetPasswordSchema,
+  googleLoginSchema,
 };

@@ -1,11 +1,13 @@
 const DiagnosticBooking = require("../models/DiagnosticBooking");
 const Lab = require("../models/Lab");
+const UploadedFile = require("../models/UploadedFile");
 const storage = require("../services/storage/storage.service");
 const { computeSplit } = require("../services/commission/commission.service");
+const { notify } = require("../services/notification/notification.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const asyncHandler = require("../utils/asyncHandler");
-const { ROLES } = require("../config/constants");
+const { ROLES, NOTIFICATION_CHANNELS } = require("../config/constants");
 
 const create = asyncHandler(async (req, res) => {
   const { labId, forFamilyMemberId, testIds, collectionType, scheduledSlot, address } = req.body;
@@ -73,11 +75,30 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const updateStatus = asyncHandler(async (req, res) => {
+  const { status, reportFile } = req.body;
   const booking = await DiagnosticBooking.findById(req.params.id);
   if (!booking) throw new ApiError(404, "NOT_FOUND", "Booking not found");
 
-  booking.status = req.body.status;
+  if (reportFile) {
+    const file = await UploadedFile.findById(reportFile);
+    if (!file) throw new ApiError(404, "FILE_NOT_FOUND", "Uploaded report file not found");
+    booking.reportFile = file._id;
+  }
+
+  booking.status = status;
   await booking.save();
+
+  if (status === "report_ready") {
+    await notify({
+      userId: booking.patient,
+      channel: NOTIFICATION_CHANNELS.PUSH,
+      type: "diagnostic_report_ready",
+      title: "Your report is ready",
+      body: "Your diagnostic test report is now available to download",
+      data: { bookingId: booking._id },
+    });
+  }
+
   return ok(res, booking, "Booking status updated");
 });
 

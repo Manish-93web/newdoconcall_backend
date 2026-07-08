@@ -95,13 +95,14 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const list = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20 } = req.query;
+  const { page = 1, limit = 20, appointmentId } = req.query;
   const { skip } = parsePagination({ page, limit });
 
   const query = {};
   const doctor = await DoctorProfile.findOne({ user: req.user.id }).select("_id");
   if (doctor) query.doctor = doctor._id;
   else query.patient = req.user.id;
+  if (appointmentId) query.appointment = appointmentId;
 
   const [items, total] = await Promise.all([
     Prescription.find(query)
