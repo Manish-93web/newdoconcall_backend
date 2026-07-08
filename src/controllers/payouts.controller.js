@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 const Payout = require("../models/Payout");
 const Payment = require("../models/Payment");
 const DoctorProfile = require("../models/DoctorProfile");
+const Appointment = require("../models/Appointment");
+const { generatePayoutsForPeriod } = require("../services/payout.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const asyncHandler = require("../utils/asyncHandler");
@@ -22,55 +24,11 @@ const list = asyncHandler(async (req, res) => {
   return ok(res, payouts, "OK", buildMeta({ page: Number(page), limit: Number(limit), total }));
 });
 
-// Groups un-paid-out, succeeded appointment payments by doctor within [periodStart, periodEnd)
-// into one Payout per doctor. Admin-triggered; idempotent per payment via Payment.payout.
+// Admin-triggered on-demand generation — the monthly payoutGeneration cron job calls the
+// same generatePayoutsForPeriod() directly, without going through this route.
 const generate = asyncHandler(async (req, res) => {
   const { periodStart, periodEnd } = req.body;
-
-  const payments = await Payment.find({
-    purpose: PAYMENT_PURPOSES.APPOINTMENT,
-    status: PAYMENT_STATUSES.SUCCEEDED,
-    payout: null,
-    createdAt: { $gte: new Date(periodStart), $lt: new Date(periodEnd) },
-  }).populate({ path: "referenceId", select: "doctor" });
-
-  const byDoctorProfile = new Map();
-  for (const payment of payments) {
-    const doctorProfileId = payment.referenceId?.doctor?.toString();
-    if (!doctorProfileId) continue;
-    if (!byDoctorProfile.has(doctorProfileId)) byDoctorProfile.set(doctorProfileId, []);
-    byDoctorProfile.get(doctorProfileId).push(payment);
-  }
-
-  const payouts = [];
-  for (const [doctorProfileId, doctorPayments] of byDoctorProfile) {
-    const doctor = await DoctorProfile.findById(doctorProfileId).select("user");
-    if (!doctor) continue;
-
-    const grossAmount = doctorPayments.reduce((sum, p) => sum + p.amount, 0);
-    const commissionDeducted = doctorPayments.reduce((sum, p) => sum + p.commissionAmount, 0);
-    const netAmount = doctorPayments.reduce((sum, p) => sum + p.netToProvider, 0);
-
-    const payout = await Payout.create({
-      payee: doctor.user,
-      payeeType: "doctor",
-      periodStart,
-      periodEnd,
-      grossAmount,
-      commissionDeducted,
-      netAmount,
-      status: "pending",
-      transactions: doctorPayments.map((p) => p._id),
-    });
-
-    await Payment.updateMany(
-      { _id: { $in: doctorPayments.map((p) => p._id) } },
-      { $set: { payout: payout._id } }
-    );
-
-    payouts.push(payout);
-  }
-
+  const payouts = await generatePayoutsForPeriod(periodStart, periodEnd);
   return created(res, payouts, `Generated ${payouts.length} payout(s)`);
 });
 
@@ -87,7 +45,10 @@ const doctorEarningsSummary = asyncHandler(async (req, res) => {
   const doctor = await DoctorProfile.findOne({ user: req.user.id });
   if (!doctor) throw new ApiError(404, "NOT_FOUND", "Doctor profile not found");
 
-  const [summary] = await Payment.aggregate([
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+  const paymentMatchStages = [
     {
       $match: {
         purpose: PAYMENT_PURPOSES.APPOINTMENT,
@@ -99,20 +60,46 @@ const doctorEarningsSummary = asyncHandler(async (req, res) => {
     },
     { $unwind: "$appointment" },
     { $match: { "appointment.doctor": doctor._id } },
-    {
-      $group: {
-        _id: null,
-        totalEarned: { $sum: "$netToProvider" },
-        totalPaidOut: {
-          $sum: { $cond: [{ $ne: ["$payout", null] }, "$netToProvider", 0] },
+  ];
+
+  const [[summary], monthlyEarnings, totalAppointments, completedAppointments] = await Promise.all([
+    Payment.aggregate([
+      ...paymentMatchStages,
+      {
+        $group: {
+          _id: null,
+          totalEarned: { $sum: "$netToProvider" },
+          totalPaidOut: {
+            $sum: { $cond: [{ $ne: ["$payout", null] }, "$netToProvider", 0] },
+          },
+          consultationCount: { $sum: 1 },
         },
-        consultationCount: { $sum: 1 },
       },
-    },
+    ]),
+    // Mirrors admin.controller.js's analyticsOverview userGrowth aggregation — same
+    // $dateToString/$group shape, scoped to this one doctor's payments instead of
+    // platform-wide user signups.
+    Payment.aggregate([
+      ...paymentMatchStages,
+      { $match: { createdAt: { $gte: sixMonthsAgo } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
+          amount: { $sum: "$netToProvider" },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
+    Appointment.countDocuments({ doctor: doctor._id }),
+    Appointment.countDocuments({ doctor: doctor._id, status: "completed" }),
   ]);
 
   const result = summary || { totalEarned: 0, totalPaidOut: 0, consultationCount: 0 };
   result.pendingPayout = result.totalEarned - result.totalPaidOut;
+  result.ratingAvg = doctor.ratingAvg || 0;
+  result.ratingCount = doctor.ratingCount || 0;
+  result.completionRate = totalAppointments ? Math.round((completedAppointments / totalAppointments) * 100) : 0;
+  result.monthlyEarnings = monthlyEarnings.map((m) => ({ month: m._id, amount: m.amount }));
 
   return ok(res, result);
 });

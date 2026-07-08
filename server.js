@@ -5,6 +5,7 @@ const app = require("./app");
 const { startAppointmentReminderJob } = require("./src/jobs/appointmentReminders.job");
 const { startRefillReminderJob } = require("./src/jobs/refillReminders.job");
 const { startDiagnosticReminderJob } = require("./src/jobs/diagnosticReminders.job");
+const { startPayoutGenerationJob } = require("./src/jobs/payoutGeneration.job");
 const { attachSockets } = require("./src/sockets");
 
 const server = http.createServer(app);
@@ -16,6 +17,7 @@ async function start() {
   startAppointmentReminderJob();
   startRefillReminderJob();
   startDiagnosticReminderJob();
+  startPayoutGenerationJob();
   server.listen(env.port, () => {
     console.log(`[server] DoconCall API listening on http://localhost:${env.port}`);
   });

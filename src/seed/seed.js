@@ -7,6 +7,7 @@ const DiagnosticTest = require("../models/DiagnosticTest");
 const Lab = require("../models/Lab");
 const HealthTag = require("../models/HealthTag");
 const SubscriptionPlan = require("../models/SubscriptionPlan");
+const NotificationTemplate = require("../models/NotificationTemplate");
 
 const SPECIALIZATIONS = [
   "General Physician",
@@ -149,6 +150,35 @@ async function seedPatientSubscriptionPlans() {
   console.log("[seed] Patient subscription plans created");
 }
 
+// Seeded with each call site's *current* hardcoded text (placeholders substituted from the
+// data each notify() call now passes) so admin customization is opt-in — behavior is
+// identical to today until an admin actually edits a row. "doctor_message" and
+// "admin_broadcast" have no row here: both are fully author-time-dynamic (a doctor's typed
+// message, an admin's composed broadcast), so there's nothing generic to template — notify()'s
+// fallback-to-passed-title/body path already handles them correctly with no template row.
+const NOTIFICATION_TEMPLATES = [
+  { key: "appointment_booked", title: "New appointment booked", body: "A patient booked a {{mode}} appointment on {{when}}", channels: ["in_app"] },
+  { key: "instant_consult_matched", title: "Instant consult request", body: "A patient wants to speak with you now.", channels: ["in_app"] },
+  { key: "follow_up_window_open", title: "Free follow-up available", body: "You can book a free follow-up with this doctor within the next {{followUpDays}} days.", channels: ["push"] },
+  { key: "prescription_issued_push", title: "New e-prescription", body: "Dr. {{doctorName}} issued you a prescription", channels: ["push"] },
+  { key: "prescription_issued_whatsapp", title: "New e-prescription", body: "Dr. {{doctorName}} issued your prescription on {{date}}. Open the DoconCall app to view and download it.", channels: ["whatsapp"] },
+  { key: "payment_succeeded", title: "Payment successful", body: "Your appointment is confirmed.", channels: ["push"] },
+  { key: "subscription_activated", title: "Subscription activated", body: "Your {{planName}} is now active — {{sessionsIncluded}} session(s) available.", channels: ["push"] },
+  { key: "diagnostic_report_ready", title: "Your report is ready", body: "Your diagnostic test report is now available to download", channels: ["push"] },
+  { key: "appointment_reminder_24h", title: "Upcoming appointment", body: "Your appointment with Dr. {{doctorName}} is at {{when}}", channels: ["push"] },
+  { key: "appointment_reminder_1h", title: "Upcoming appointment", body: "Your appointment with Dr. {{doctorName}} is at {{when}}", channels: ["push"] },
+  { key: "medicine_refill_reminder", title: "Time to refill your medicines", body: "Based on your last order, it's time to reorder your medicines.", channels: ["push"] },
+  { key: "diagnostic_reminder_24h", title: "Upcoming diagnostic test", body: "{{collectionNote}} for your test(s) at {{labName}} is scheduled for {{when}}", channels: ["push"] },
+  { key: "diagnostic_reminder_2h", title: "Upcoming diagnostic test", body: "{{collectionNote}} for your test(s) at {{labName}} is scheduled for {{when}}", channels: ["push"] },
+];
+
+async function seedNotificationTemplates() {
+  for (const tpl of NOTIFICATION_TEMPLATES) {
+    await NotificationTemplate.updateOne({ key: tpl.key }, { $setOnInsert: tpl }, { upsert: true });
+  }
+  console.log(`[seed] Notification templates ensured (${NOTIFICATION_TEMPLATES.length})`);
+}
+
 async function run() {
   await connectDB();
 
@@ -162,6 +192,7 @@ async function run() {
   await seedSampleLab();
   await seedHealthTags();
   await seedPatientSubscriptionPlans();
+  await seedNotificationTemplates();
 
   console.log("[seed] Done. Run again anytime — seeders are idempotent.");
   await disconnectDB();

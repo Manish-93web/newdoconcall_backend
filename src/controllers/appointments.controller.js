@@ -2,6 +2,10 @@ const Appointment = require("../models/Appointment");
 const DoctorProfile = require("../models/DoctorProfile");
 const ConsultationSession = require("../models/ConsultationSession");
 const PatientSubscription = require("../models/PatientSubscription");
+const User = require("../models/User");
+const HealthRecord = require("../models/HealthRecord");
+const Prescription = require("../models/Prescription");
+const PlatformSetting = require("../models/PlatformSetting");
 const { computeSplit } = require("../services/commission/commission.service");
 const { notify } = require("../services/notification/notification.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
@@ -91,7 +95,7 @@ const book = asyncHandler(async (req, res) => {
     type: "appointment_booked",
     title: "New appointment booked",
     body: `A patient booked a ${mode} appointment on ${new Date(scheduledStart).toLocaleString()}`,
-    data: { appointmentId: appointment._id },
+    data: { appointmentId: appointment._id, mode, when: new Date(scheduledStart).toLocaleString() },
   });
 
   return created(res, appointment, "Appointment booked");
@@ -304,8 +308,9 @@ const complete = asyncHandler(async (req, res) => {
   const { isDoctor, isAdmin } = await assertParticipant(appointment, req.user);
   if (!isDoctor && !isAdmin) throw new ApiError(403, "FORBIDDEN", "Only the doctor can complete a visit");
 
+  const settings = await PlatformSetting.getSettings();
   appointment.status = APPOINTMENT_STATUSES.COMPLETED;
-  appointment.followUpWindowEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  appointment.followUpWindowEndsAt = new Date(Date.now() + settings.followUpWindowDays * 24 * 60 * 60 * 1000);
   await appointment.save();
 
   // Deduct on completion, not at match/booking time — a session credit isn't wasted if
@@ -321,11 +326,83 @@ const complete = asyncHandler(async (req, res) => {
     channel: NOTIFICATION_CHANNELS.PUSH,
     type: "follow_up_window_open",
     title: "Free follow-up available",
-    body: "You can book a free follow-up with this doctor within the next 7 days.",
-    data: { appointmentId: appointment._id },
+    body: `You can book a free follow-up with this doctor within the next ${settings.followUpWindowDays} days.`,
+    data: { appointmentId: appointment._id, followUpDays: settings.followUpWindowDays },
   });
 
   return ok(res, appointment, "Appointment marked completed");
 });
 
-module.exports = { book, bookInstant, list, getOne, reschedule, cancel, accept, reject, complete };
+// "Contact patient by messaging in case of missed incoming call" — deliberately a
+// one-off notification through the existing push+WhatsApp channels rather than a new
+// persistent chat/inbox system, which is a much bigger feature than what's asked for.
+const messagePatient = asyncHandler(async (req, res) => {
+  const appointment = await Appointment.findById(req.params.id);
+  if (!appointment) throw new ApiError(404, "NOT_FOUND", "Appointment not found");
+  const { isDoctor, isAdmin } = await assertParticipant(appointment, req.user);
+  if (!isDoctor && !isAdmin) throw new ApiError(403, "FORBIDDEN", "Only the doctor can message the patient");
+
+  const { message } = req.body;
+  const doctorUser = await User.findById(req.user.id).select("name");
+
+  await notify({
+    userId: appointment.patient,
+    channel: NOTIFICATION_CHANNELS.PUSH,
+    type: "doctor_message",
+    title: `Message from Dr. ${doctorUser.name}`,
+    body: message,
+    data: { appointmentId: appointment._id },
+  });
+  await notify({
+    userId: appointment.patient,
+    channel: NOTIFICATION_CHANNELS.WHATSAPP,
+    type: "doctor_message",
+    title: `Message from Dr. ${doctorUser.name}`,
+    body: message,
+    data: { appointmentId: appointment._id },
+  });
+
+  return ok(res, null, "Message sent to patient");
+});
+
+// One convenience call composing everything a doctor needs to see about a patient
+// before/during a consult, instead of making the client orchestrate 3 separate requests.
+// Gated the same way as messagePatient — only the treating doctor or an admin.
+const patientSnapshot = asyncHandler(async (req, res) => {
+  const appointment = await Appointment.findById(req.params.id);
+  if (!appointment) throw new ApiError(404, "NOT_FOUND", "Appointment not found");
+  const { isDoctor, isAdmin } = await assertParticipant(appointment, req.user);
+  if (!isDoctor && !isAdmin) throw new ApiError(403, "FORBIDDEN", "Only the treating doctor can view this");
+
+  const [patient, recentHealthRecords, recentPrescriptions] = await Promise.all([
+    User.findById(appointment.patient).select("name healthId medicalHistory"),
+    HealthRecord.find({ owner: appointment.patient }).sort({ recordDate: -1 }).limit(10),
+    // appointment.doctor is already this appointment's DoctorProfile id — scoping
+    // prescriptions to it (not just patient) means the doctor only sees prescriptions
+    // they themselves issued, not every doctor's history for this patient.
+    Prescription.find({ patient: appointment.patient, doctor: appointment.doctor }).sort({ createdAt: -1 }).limit(10),
+  ]);
+  if (!patient) throw new ApiError(404, "NOT_FOUND", "Patient not found");
+
+  return ok(res, {
+    name: patient.name,
+    healthId: patient.healthId || null,
+    medicalHistory: patient.medicalHistory || null,
+    recentHealthRecords,
+    recentPrescriptions,
+  });
+});
+
+module.exports = {
+  book,
+  bookInstant,
+  list,
+  getOne,
+  reschedule,
+  cancel,
+  accept,
+  reject,
+  complete,
+  messagePatient,
+  patientSnapshot,
+};

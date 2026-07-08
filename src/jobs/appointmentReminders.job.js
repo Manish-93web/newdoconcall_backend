@@ -18,13 +18,14 @@ async function sendRemindersWithinWindow(minutesFromNow, windowMinutes, reminder
 
   for (const appointment of appointments) {
     const when = appointment.scheduledStart.toLocaleString();
+    const doctorName = appointment.doctor?.user?.name || "";
     await notify({
       userId: appointment.patient,
       channel: NOTIFICATION_CHANNELS.PUSH,
       type: `appointment_reminder_${reminderKey}`,
       title: "Upcoming appointment",
-      body: `Your appointment with Dr. ${appointment.doctor?.user?.name || ""} is at ${when}`,
-      data: { appointmentId: appointment._id },
+      body: `Your appointment with Dr. ${doctorName} is at ${when}`,
+      data: { appointmentId: appointment._id, doctorName, when },
     });
   }
 

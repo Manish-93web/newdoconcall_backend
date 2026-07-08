@@ -7,6 +7,7 @@ const platformSettingSchema = new mongoose.Schema(
     consultationCommissionPercent: { type: Number, default: 15 },
     pharmacyCommissionPercent: { type: Number, default: 10 },
     diagnosticMarginPercent: { type: Number, default: 12 },
+    followUpWindowDays: { type: Number, default: 7 },
     clinicSubscriptionPlans: [
       {
         name: String,

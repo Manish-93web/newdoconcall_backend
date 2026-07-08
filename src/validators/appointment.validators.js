@@ -34,4 +34,15 @@ const bookInstantSchema = Joi.object({
     .required(),
 });
 
-module.exports = { bookAppointmentSchema, rescheduleSchema, cancelSchema, rejectSchema, bookInstantSchema };
+const messagePatientSchema = Joi.object({
+  message: Joi.string().trim().min(1).max(500).required(),
+});
+
+module.exports = {
+  bookAppointmentSchema,
+  rescheduleSchema,
+  cancelSchema,
+  rejectSchema,
+  bookInstantSchema,
+  messagePatientSchema,
+};

@@ -179,7 +179,7 @@ async function applySideEffect(payment) {
         type: "subscription_activated",
         title: "Subscription activated",
         body: `Your ${plan.name} is now active — ${plan.sessionsIncluded} session(s) available.`,
-        data: { planId: plan._id },
+        data: { planId: plan._id, planName: plan.name, sessionsIncluded: plan.sessionsIncluded },
       });
       break;
     }

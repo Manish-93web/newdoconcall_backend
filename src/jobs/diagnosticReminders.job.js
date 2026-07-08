@@ -18,13 +18,14 @@ async function sendRemindersWithinWindow(minutesFromNow, windowMinutes, reminder
   for (const booking of bookings) {
     const when = booking.scheduledSlot.toLocaleString();
     const collectionNote = booking.collectionType === "home" ? "Sample collection at your address" : "Visit the lab";
+    const labName = booking.lab?.name || "the lab";
     await notify({
       userId: booking.patient,
       channel: NOTIFICATION_CHANNELS.PUSH,
       type: `diagnostic_reminder_${reminderKey}`,
       title: "Upcoming diagnostic test",
-      body: `${collectionNote} for your test(s) at ${booking.lab?.name || "the lab"} is scheduled for ${when}`,
-      data: { bookingId: booking._id },
+      body: `${collectionNote} for your test(s) at ${labName} is scheduled for ${when}`,
+      data: { bookingId: booking._id, collectionNote, labName, when },
     });
   }
 

@@ -7,6 +7,7 @@ const {
   cancelSchema,
   rejectSchema,
   bookInstantSchema,
+  messagePatientSchema,
 } = require("../validators/appointment.validators");
 const ctrl = require("../controllers/appointments.controller");
 
@@ -16,10 +17,12 @@ router.post("/", validate(bookAppointmentSchema), ctrl.book);
 router.post("/instant", validate(bookInstantSchema), ctrl.bookInstant);
 router.get("/", ctrl.list);
 router.get("/:id", ctrl.getOne);
+router.get("/:id/patient-snapshot", ctrl.patientSnapshot);
 router.patch("/:id/reschedule", validate(rescheduleSchema), ctrl.reschedule);
 router.patch("/:id/cancel", validate(cancelSchema), ctrl.cancel);
 router.patch("/:id/accept", ctrl.accept);
 router.patch("/:id/reject", validate(rejectSchema), ctrl.reject);
 router.patch("/:id/complete", ctrl.complete);
+router.post("/:id/message-patient", validate(messagePatientSchema), ctrl.messagePatient);
 
 module.exports = router;

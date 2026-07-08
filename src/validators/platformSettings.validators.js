@@ -5,6 +5,7 @@ const updatePlatformSettingsSchema = Joi.object({
   consultationCommissionPercent: Joi.number().min(0).max(100),
   pharmacyCommissionPercent: Joi.number().min(0).max(100),
   diagnosticMarginPercent: Joi.number().min(0).max(100),
+  followUpWindowDays: Joi.number().min(0),
   clinicSubscriptionPlans: Joi.array().items(
     Joi.object({
       name: Joi.string().required(),

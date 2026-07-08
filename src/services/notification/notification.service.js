@@ -1,11 +1,16 @@
 const CompositeNotificationProvider = require("./composite.provider");
 const Notification = require("../../models/Notification");
+const NotificationTemplate = require("../../models/NotificationTemplate");
 const User = require("../../models/User");
 const env = require("../../config/env");
 const { NOTIFICATION_CHANNELS } = require("../../config/constants");
 const { createLogger } = require("../../utils/logger");
 
 const log = createLogger("notification:service");
+
+function interpolate(str, data = {}) {
+  return str.replace(/\{\{(\w+)\}\}/g, (_, key) => (data?.[key] ?? ""));
+}
 
 // CompositeNotificationProvider activates each real channel (Twilio/SendGrid/FCM)
 // independently the moment that channel's own credentials are configured in .env, and
@@ -22,12 +27,19 @@ const provider = resolveProvider();
  * document regardless of provider outcome, then attempts delivery over the requested channel.
  */
 async function notify({ userId, channel, type, title, body, data }) {
+  // If an active admin-editable template exists for this type, it wins — interpolated
+  // against `data`. Otherwise falls back to the title/body the call site passed, so a
+  // missing/misconfigured template can never break a notification, only fail to customize it.
+  const template = await NotificationTemplate.findOne({ key: type, isActive: true }).catch(() => null);
+  const resolvedTitle = template ? interpolate(template.title, data) : title;
+  const resolvedBody = template ? interpolate(template.body, data) : body;
+
   const notification = await Notification.create({
     recipient: userId,
     channel,
     type,
-    title,
-    body,
+    title: resolvedTitle,
+    body: resolvedBody,
     data,
     status: "queued",
   });
@@ -37,14 +49,14 @@ async function notify({ userId, channel, type, title, body, data }) {
     if (!user) throw new Error("Recipient not found");
 
     if (channel === NOTIFICATION_CHANNELS.SMS && user.phone) {
-      await provider.sendSms(user.phone, `${title}: ${body}`);
+      await provider.sendSms(user.phone, `${resolvedTitle}: ${resolvedBody}`);
     } else if (channel === NOTIFICATION_CHANNELS.EMAIL && user.email) {
-      await provider.sendEmail(user.email, title, body);
+      await provider.sendEmail(user.email, resolvedTitle, resolvedBody);
     } else if (channel === NOTIFICATION_CHANNELS.WHATSAPP && user.phone) {
-      await provider.sendWhatsapp(user.phone, `${title}: ${body}`);
+      await provider.sendWhatsapp(user.phone, `${resolvedTitle}: ${resolvedBody}`);
     } else if (channel === NOTIFICATION_CHANNELS.PUSH) {
       for (const token of user.fcmTokens || []) {
-        await provider.sendPush(token, title, body, data);
+        await provider.sendPush(token, resolvedTitle, resolvedBody, data);
       }
     }
 
