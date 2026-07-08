@@ -1,11 +1,16 @@
 const Complaint = require("../models/Complaint");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
+const { sanitizeText } = require("../utils/sanitize");
 const asyncHandler = require("../utils/asyncHandler");
 const { ROLES } = require("../config/constants");
 
 const create = asyncHandler(async (req, res) => {
-  const complaint = await Complaint.create({ ...req.body, raisedBy: req.user.id });
+  const complaint = await Complaint.create({
+    ...req.body,
+    description: sanitizeText(req.body.description),
+    raisedBy: req.user.id,
+  });
   return created(res, complaint, "Complaint submitted");
 });
 
@@ -29,7 +34,7 @@ const resolve = asyncHandler(async (req, res) => {
   if (!complaint) throw new ApiError(404, "NOT_FOUND", "Complaint not found");
 
   complaint.status = req.body.status;
-  complaint.resolutionNote = req.body.resolutionNote;
+  complaint.resolutionNote = sanitizeText(req.body.resolutionNote);
   complaint.handledBy = req.user.id;
   await complaint.save();
 

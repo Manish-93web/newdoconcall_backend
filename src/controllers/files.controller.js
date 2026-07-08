@@ -27,7 +27,9 @@ async function assertAccess(file, user) {
 
   const grant = await HealthRecord.findOne({
     fileRef: file._id,
-    "accessGrants.grantedTo": user.id,
+    accessGrants: {
+      $elemMatch: { grantedTo: user.id, $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] },
+    },
   });
   if (grant) return true;
 

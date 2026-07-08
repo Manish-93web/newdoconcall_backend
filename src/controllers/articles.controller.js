@@ -1,6 +1,7 @@
 const Article = require("../models/Article");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
+const { sanitizeText } = require("../utils/sanitize");
 const asyncHandler = require("../utils/asyncHandler");
 
 function slugify(title) {
@@ -43,6 +44,8 @@ const getBySlug = asyncHandler(async (req, res) => {
 const create = asyncHandler(async (req, res) => {
   const article = await Article.create({
     ...req.body,
+    title: sanitizeText(req.body.title),
+    body: sanitizeText(req.body.body),
     slug: slugify(req.body.title),
     author: req.user.id,
   });
@@ -61,6 +64,8 @@ const update = asyncHandler(async (req, res) => {
   await assertOwnerOrAdmin(article, req.user);
 
   Object.assign(article, req.body);
+  if (req.body.title) article.title = sanitizeText(req.body.title);
+  if (req.body.body) article.body = sanitizeText(req.body.body);
   await article.save();
   return ok(res, article, "Article updated");
 });

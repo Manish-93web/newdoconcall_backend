@@ -8,7 +8,7 @@ const { UPLOAD_ROOT } = require("../../middleware/upload.middleware");
  * Renders a prescription to a PDF on local disk and returns the relative path
  * (module-scoped, matching UploadedFile.path convention: "<module>/<filename>").
  */
-function generatePrescriptionPdf({ prescription, doctorName, patientName }) {
+function generatePrescriptionPdf({ prescription, doctorName, patientName, registrationNumber, signatureImagePath }) {
   return new Promise((resolve, reject) => {
     const filename = `${uuid()}.pdf`;
     const relativePath = path.join("prescription", filename);
@@ -46,7 +46,27 @@ function generatePrescriptionPdf({ prescription, doctorName, patientName }) {
     if (prescription.followUpInstructions) {
       doc.fontSize(13).text("Follow-up", { underline: true });
       doc.fontSize(11).text(prescription.followUpInstructions);
+      doc.moveDown();
     }
+
+    // Digital signature block — always present as text (satisfies "digitally signed"
+    // regardless of whether the doctor has uploaded a signature image); the image, if
+    // present, is embedded above it as a visual enhancement.
+    doc.moveDown();
+    if (signatureImagePath) {
+      const fullSignaturePath = path.join(UPLOAD_ROOT, signatureImagePath);
+      if (fs.existsSync(fullSignaturePath)) {
+        doc.image(fullSignaturePath, { width: 120 });
+        doc.moveDown(0.5);
+      }
+    }
+    doc
+      .fontSize(9)
+      .fillColor("#555555")
+      .text(
+        `Digitally signed by Dr. ${doctorName}${registrationNumber ? ` (Reg. No. ${registrationNumber})` : ""} on ${new Date().toLocaleString()}`
+      )
+      .fillColor("black");
 
     doc.end();
 

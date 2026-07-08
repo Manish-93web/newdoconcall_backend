@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const { ok, ApiError } = require("../utils/apiResponse");
+const { sanitizeText } = require("../utils/sanitize");
 const asyncHandler = require("../utils/asyncHandler");
 
 const getMe = asyncHandler(async (req, res) => {
@@ -9,11 +10,12 @@ const getMe = asyncHandler(async (req, res) => {
 });
 
 const updateMe = asyncHandler(async (req, res) => {
-  const allowedFields = ["name", "dob", "gender", "addresses"];
+  const allowedFields = ["name", "dob", "gender", "addresses", "medicalHistory"];
   const updates = {};
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) updates[field] = req.body[field];
   }
+  if (updates.medicalHistory?.notes) updates.medicalHistory.notes = sanitizeText(updates.medicalHistory.notes);
   const user = await User.findByIdAndUpdate(req.user.id, updates, { new: true, runValidators: true });
   return ok(res, user, "Profile updated");
 });

@@ -5,6 +5,8 @@ const Specialization = require("../models/Specialization");
 const Medicine = require("../models/Medicine");
 const DiagnosticTest = require("../models/DiagnosticTest");
 const Lab = require("../models/Lab");
+const HealthTag = require("../models/HealthTag");
+const SubscriptionPlan = require("../models/SubscriptionPlan");
 
 const SPECIALIZATIONS = [
   "General Physician",
@@ -109,6 +111,44 @@ async function seedClinicSubscriptionPlans() {
   console.log("[seed] Clinic subscription plans ensured");
 }
 
+const HEALTH_TAGS = ["Diabetes", "Hypertension", "Thyroid", "Asthma", "Heart Condition", "Allergies"];
+
+async function seedHealthTags() {
+  for (let i = 0; i < HEALTH_TAGS.length; i++) {
+    await HealthTag.updateOne(
+      { name: HEALTH_TAGS[i] },
+      { $setOnInsert: { name: HEALTH_TAGS[i], order: i } },
+      { upsert: true }
+    );
+  }
+  console.log(`[seed] Health tags ensured (${HEALTH_TAGS.length})`);
+}
+
+async function seedPatientSubscriptionPlans() {
+  const existing = await SubscriptionPlan.countDocuments();
+  if (existing) return console.log("[seed] Patient subscription plans already exist");
+
+  await SubscriptionPlan.create([
+    {
+      name: "Freemium",
+      description: "Your first consultation, on us.",
+      price: 0,
+      billingCycle: "one_time",
+      sessionsIncluded: 1,
+      isFreemium: true,
+    },
+    {
+      name: "Annual Health Consultant Plan",
+      description: "12 doctor consultations across a year, digital prescriptions, and health history tracking.",
+      price: 2999,
+      billingCycle: "annual",
+      sessionsIncluded: 12,
+      isFreemium: false,
+    },
+  ]);
+  console.log("[seed] Patient subscription plans created");
+}
+
 async function run() {
   await connectDB();
 
@@ -120,6 +160,8 @@ async function run() {
   await seedMedicines();
   await seedDiagnosticTests();
   await seedSampleLab();
+  await seedHealthTags();
+  await seedPatientSubscriptionPlans();
 
   console.log("[seed] Done. Run again anytime — seeders are idempotent.");
   await disconnectDB();

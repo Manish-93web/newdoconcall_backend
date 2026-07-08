@@ -5,7 +5,7 @@ const uploadedFileSchema = new mongoose.Schema(
     owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     module: {
       type: String,
-      enum: ["prescription", "report", "kyc", "profileImage"],
+      enum: ["prescription", "report", "kyc", "profileImage", "signature"],
       required: true,
     },
     storageProvider: { type: String, enum: ["local", "s3"], default: "local" },

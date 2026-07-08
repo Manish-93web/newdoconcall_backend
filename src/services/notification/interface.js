@@ -11,6 +11,10 @@ class NotificationProvider {
   async sendPush(_fcmToken, _title, _body, _data) {
     throw new Error("sendPush not implemented");
   }
+
+  async sendWhatsapp(_to, _message) {
+    throw new Error("sendWhatsapp not implemented");
+  }
 }
 
 module.exports = NotificationProvider;

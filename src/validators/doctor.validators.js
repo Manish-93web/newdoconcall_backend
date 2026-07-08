@@ -32,6 +32,7 @@ const upsertDoctorSchema = Joi.object({
       slotDurationMinutes: Joi.number().min(5).max(180).default(15),
     })
   ),
+  signatureImage: Joi.string().allow(null),
 });
 
 const searchDoctorsSchema = Joi.object({
@@ -42,6 +43,9 @@ const searchDoctorsSchema = Joi.object({
   minFee: Joi.number().min(0),
   maxFee: Joi.number().min(0),
   minRating: Joi.number().min(0).max(5),
+  minExperience: Joi.number().min(0),
+  maxExperience: Joi.number().min(0),
+  clinicId: Joi.string(),
   name: Joi.string(),
   page: Joi.number().min(1).default(1),
   limit: Joi.number().min(1).max(100).default(20),

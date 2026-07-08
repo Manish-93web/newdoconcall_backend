@@ -59,7 +59,7 @@ const update = asyncHandler(async (req, res) => {
 });
 
 const listMine = asyncHandler(async (req, res) => {
-  const clinics = await ClinicProfile.find({ owner: req.user.id });
+  const clinics = await ClinicProfile.find({ $or: [{ owner: req.user.id }, { staff: req.user.id }] });
   return ok(res, clinics);
 });
 
@@ -109,10 +109,18 @@ const removeDoctor = asyncHandler(async (req, res) => {
   return ok(res, null, "Doctor unlinked from clinic");
 });
 
+function isOwnerStaffOrAdmin(clinic, user) {
+  return (
+    clinic.owner.toString() === user.id ||
+    clinic.staff.some((s) => s.toString() === user.id) ||
+    user.role === ROLES.PLATFORM_ADMIN
+  );
+}
+
 const getAnalytics = asyncHandler(async (req, res) => {
   const clinic = await ClinicProfile.findById(req.params.id);
   if (!clinic) throw new ApiError(404, "NOT_FOUND", "Clinic not found");
-  if (clinic.owner.toString() !== req.user.id && req.user.role !== ROLES.PLATFORM_ADMIN) {
+  if (!isOwnerStaffOrAdmin(clinic, req.user)) {
     throw new ApiError(403, "FORBIDDEN", "You do not manage this clinic");
   }
 

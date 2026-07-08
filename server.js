@@ -4,6 +4,7 @@ const { connectDB } = require("./src/config/db");
 const app = require("./app");
 const { startAppointmentReminderJob } = require("./src/jobs/appointmentReminders.job");
 const { startRefillReminderJob } = require("./src/jobs/refillReminders.job");
+const { startDiagnosticReminderJob } = require("./src/jobs/diagnosticReminders.job");
 const { attachSockets } = require("./src/sockets");
 
 const server = http.createServer(app);
@@ -14,6 +15,7 @@ async function start() {
   await connectDB();
   startAppointmentReminderJob();
   startRefillReminderJob();
+  startDiagnosticReminderJob();
   server.listen(env.port, () => {
     console.log(`[server] DoconCall API listening on http://localhost:${env.port}`);
   });

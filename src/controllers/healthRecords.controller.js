@@ -22,6 +22,33 @@ const list = asyncHandler(async (req, res) => {
   return ok(res, records, "OK", buildMeta({ page: Number(page), limit: Number(limit), total }));
 });
 
+// Lets a doctor view a patient's health locker — but only once they've actually
+// treated that patient (proven by a completed appointment between them), mirroring
+// the same permission check `create` already applies to doctor_note creation.
+const listForPatient = asyncHandler(async (req, res) => {
+  const { patientId } = req.params;
+  const { page = 1, limit = 50 } = req.query;
+  const { skip } = parsePagination({ page, limit });
+
+  const doctorProfile = await DoctorProfile.findOne({ user: req.user.id }).select("_id");
+  if (!doctorProfile) throw new ApiError(403, "FORBIDDEN", "Doctor profile not found");
+
+  const treated = await Appointment.exists({
+    doctor: doctorProfile._id,
+    patient: patientId,
+    status: "completed",
+  });
+  if (!treated) throw new ApiError(403, "FORBIDDEN", "You have not treated this patient");
+
+  const query = { owner: patientId };
+  const [records, total] = await Promise.all([
+    HealthRecord.find(query).sort({ recordDate: -1 }).skip(skip).limit(Number(limit)),
+    HealthRecord.countDocuments(query),
+  ]);
+
+  return ok(res, records, "OK", buildMeta({ page: Number(page), limit: Number(limit), total }));
+});
+
 const create = asyncHandler(async (req, res) => {
   const { appointmentId, ...body } = req.body;
 
@@ -65,7 +92,9 @@ const getOne = asyncHandler(async (req, res) => {
   if (!record) throw new ApiError(404, "NOT_FOUND", "Health record not found");
 
   const isOwner = record.owner.toString() === req.user.id;
-  const hasGrant = record.accessGrants.some((g) => g.grantedTo.toString() === req.user.id);
+  const hasGrant = record.accessGrants.some(
+    (g) => g.grantedTo.toString() === req.user.id && (!g.expiresAt || g.expiresAt > new Date())
+  );
   if (!isOwner && !hasGrant) throw new ApiError(403, "FORBIDDEN", "You cannot view this record");
 
   return ok(res, record);
@@ -88,4 +117,4 @@ const share = asyncHandler(async (req, res) => {
   return ok(res, record, "Access granted");
 });
 
-module.exports = { list, create, getOne, remove, share };
+module.exports = { list, listForPatient, create, getOne, remove, share };

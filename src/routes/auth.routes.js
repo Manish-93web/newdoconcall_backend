@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const { validate } = require("../middleware/validate.middleware");
+const { authLimiter, otpLimiter } = require("../middleware/rateLimit.middleware");
 const {
   registerSchema,
   otpRequestSchema,
@@ -11,13 +12,13 @@ const {
 } = require("../validators/auth.validators");
 const ctrl = require("../controllers/auth.controller");
 
-router.post("/register", validate(registerSchema), ctrl.register);
-router.post("/otp/request", validate(otpRequestSchema), ctrl.requestOtpHandler);
-router.post("/otp/verify", validate(otpVerifySchema), ctrl.verifyOtpHandler);
-router.post("/password/reset", validate(resetPasswordSchema), ctrl.resetPasswordHandler);
-router.post("/login", validate(loginSchema), ctrl.login);
+router.post("/register", authLimiter, validate(registerSchema), ctrl.register);
+router.post("/otp/request", otpLimiter, validate(otpRequestSchema), ctrl.requestOtpHandler);
+router.post("/otp/verify", authLimiter, validate(otpVerifySchema), ctrl.verifyOtpHandler);
+router.post("/password/reset", otpLimiter, validate(resetPasswordSchema), ctrl.resetPasswordHandler);
+router.post("/login", authLimiter, validate(loginSchema), ctrl.login);
 router.post("/refresh-token", validate(refreshSchema), ctrl.refreshToken);
 router.post("/logout", ctrl.logout);
-router.post("/google", validate(googleLoginSchema), ctrl.googleLogin);
+router.post("/google", authLimiter, validate(googleLoginSchema), ctrl.googleLogin);
 
 module.exports = router;

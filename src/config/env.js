@@ -42,10 +42,16 @@ module.exports = {
     },
   },
   notificationProvider: process.env.NOTIFICATION_PROVIDER || "console",
+  // Android SMS Retriever API app hash — appended to outgoing OTP SMS bodies so the
+  // mobile app can auto-read the code. Blank = simply omitted, manual entry still works.
+  smsAppHash: process.env.SMS_APP_HASH || "",
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID || "",
     authToken: process.env.TWILIO_AUTH_TOKEN || "",
     fromNumber: process.env.TWILIO_FROM_NUMBER || "",
+    // WhatsApp Business API sender — a *different* number from fromNumber above (must be
+    // WhatsApp-enabled in the Twilio console, e.g. the sandbox number while testing).
+    whatsappFrom: process.env.TWILIO_WHATSAPP_FROM || "",
   },
   sendgrid: {
     apiKey: process.env.SENDGRID_API_KEY || "",

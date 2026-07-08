@@ -11,8 +11,11 @@ const clinicProfileSchema = new mongoose.Schema(
       city: String,
       state: String,
       pincode: String,
+      // No default on `type` — see DoctorProfile.js's geoPointSchema comment for why:
+      // a default here would make Mongoose auto-vivify a coordinate-less Point on every
+      // insert that omits an address, which the 2dsphere index rejects at write time.
       geo: {
-        type: { type: String, enum: ["Point"], default: "Point" },
+        type: { type: String, enum: ["Point"] },
         coordinates: { type: [Number], default: undefined },
       },
     },

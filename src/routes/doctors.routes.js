@@ -23,6 +23,7 @@ router.post(
   allowRoles(ROLES.DOCTOR),
   ctrl.submitVerificationDocuments
 );
+router.patch("/me/live-status", authenticate(), allowRoles(ROLES.DOCTOR), ctrl.setLiveStatus);
 router.get("/:id", ctrl.getOne);
 router.get("/:id/availability", ctrl.getAvailability);
 

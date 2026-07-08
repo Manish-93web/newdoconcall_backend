@@ -20,6 +20,11 @@ class CompositeNotificationProvider extends NotificationProvider {
       new (require("./sendgrid.provider"))()
     );
     this.push = tryBuild("fcm", env.firebase.serviceAccountJson, () => new (require("./fcm.provider"))());
+    this.whatsapp = tryBuild(
+      "whatsapp",
+      env.twilio.accountSid && env.twilio.authToken && env.twilio.whatsappFrom,
+      () => new (require("./whatsapp.provider"))()
+    );
   }
 
   async sendSms(to, message) {
@@ -34,6 +39,10 @@ class CompositeNotificationProvider extends NotificationProvider {
     return this.push
       ? this.push.sendPush(fcmToken, title, body, data)
       : this.consoleFallback.sendPush(fcmToken, title, body, data);
+  }
+
+  async sendWhatsapp(to, message) {
+    return this.whatsapp ? this.whatsapp.sendWhatsapp(to, message) : this.consoleFallback.sendWhatsapp(to, message);
   }
 }
 

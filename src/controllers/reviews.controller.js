@@ -3,6 +3,7 @@ const Review = require("../models/Review");
 const Appointment = require("../models/Appointment");
 const DoctorProfile = require("../models/DoctorProfile");
 const { ok, created, ApiError } = require("../utils/apiResponse");
+const { sanitizeText } = require("../utils/sanitize");
 const asyncHandler = require("../utils/asyncHandler");
 
 const TARGET_MODEL = { doctor: "DoctorProfile", clinic: "ClinicProfile", lab: "Lab" };
@@ -44,7 +45,7 @@ const create = asyncHandler(async (req, res) => {
     targetTypeModel: TARGET_MODEL[targetType],
     appointment: appointmentId,
     rating,
-    comment,
+    comment: sanitizeText(comment),
   });
 
   await recalcRating(targetType, targetId);

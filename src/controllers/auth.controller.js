@@ -6,6 +6,7 @@ const { issueTokenPair, verifyRefreshToken, signAccessToken, signRefreshToken } 
 const { requestOtp, verifyOtp } = require("../services/auth/otp.service");
 const { revokeToken, isTokenRevoked } = require("../services/auth/tokenBlacklist.service");
 const { verifyGoogleIdToken } = require("../services/auth/googleOAuth.service");
+const { provisionFreemiumSubscription } = require("../services/subscription/subscription.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
 
@@ -23,7 +24,25 @@ function toPublicUser(user) {
     status: user.status,
     isEmailVerified: user.isEmailVerified,
     isPhoneVerified: user.isPhoneVerified,
+    healthId: user.healthId,
   };
+}
+
+// Auto-grants the Freemium plan (1 free session) + generates a Health ID for every new
+// patient — satisfies "1st consultation is free" with no purchase step. No-op for other
+// roles. Never throws into the caller's response — a missing/misconfigured Freemium plan
+// shouldn't block account creation, just means the dashboard shows no plan yet.
+async function grantFreemiumIfPatient(user) {
+  if (user.role !== ROLES.PATIENT) return;
+  try {
+    await provisionFreemiumSubscription(user._id);
+    // provisionFreemiumSubscription sets healthId on a separately-fetched document —
+    // reload it onto this instance so the registration response includes it.
+    const refreshed = await User.findById(user._id).select("healthId");
+    if (refreshed?.healthId) user.healthId = refreshed.healthId;
+  } catch {
+    // Best-effort — registration must not fail because of this.
+  }
 }
 
 const register = asyncHandler(async (req, res) => {
@@ -41,6 +60,7 @@ const register = asyncHandler(async (req, res) => {
     passwordHash,
     role: role || ROLES.PATIENT,
   });
+  await grantFreemiumIfPatient(user);
 
   const tokens = issueTokenPair(user);
   return created(res, { user: toPublicUser(user), ...tokens }, "Registered successfully");
@@ -99,6 +119,7 @@ const verifyOtpHandler = asyncHandler(async (req, res) => {
       isEmailVerified: isEmail(identifier),
       isPhoneVerified: !isEmail(identifier),
     });
+    await grantFreemiumIfPatient(user);
   } else {
     if (isEmail(identifier)) user.isEmailVerified = true;
     else user.isPhoneVerified = true;
@@ -187,6 +208,7 @@ const googleLogin = asyncHandler(async (req, res) => {
     if (user) user.authProviders.push({ provider: "google", providerId: profile.providerId });
   }
 
+  let isNewUser = false;
   if (!user) {
     user = new User({
       name: profile.name || "New User",
@@ -195,10 +217,12 @@ const googleLogin = asyncHandler(async (req, res) => {
       isEmailVerified: profile.emailVerified,
       authProviders: [{ provider: "google", providerId: profile.providerId }],
     });
+    isNewUser = true;
   }
 
   user.lastLoginAt = new Date();
   await user.save();
+  if (isNewUser) await grantFreemiumIfPatient(user);
 
   const tokens = issueTokenPair(user);
   return ok(res, { user: toPublicUser(user), ...tokens }, "Logged in with Google");

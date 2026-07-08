@@ -40,6 +40,7 @@ const PAYMENT_PURPOSES = Object.freeze({
   DIAGNOSTIC_BOOKING: "diagnostic_booking",
   CLINIC_SUBSCRIPTION: "clinic_subscription",
   DOCTOR_LISTING_FEE: "doctor_listing_fee",
+  PATIENT_SUBSCRIPTION: "patient_subscription",
 });
 
 const PAYMENT_STATUSES = Object.freeze({
@@ -54,6 +55,7 @@ const NOTIFICATION_CHANNELS = Object.freeze({
   SMS: "sms",
   EMAIL: "email",
   IN_APP: "in_app",
+  WHATSAPP: "whatsapp",
 });
 
 const VERIFICATION_STATUSES = Object.freeze({

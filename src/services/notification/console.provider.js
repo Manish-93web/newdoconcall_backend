@@ -18,6 +18,11 @@ class ConsoleNotificationProvider extends NotificationProvider {
     log.info(`PUSH -> ${fcmToken || "(no token)"} [${title}]: ${body}`, data);
     return { delivered: true, provider: "console" };
   }
+
+  async sendWhatsapp(to, message) {
+    log.info(`WHATSAPP -> ${to}: ${message}`);
+    return { delivered: true, provider: "console" };
+  }
 }
 
 module.exports = ConsoleNotificationProvider;

@@ -6,12 +6,14 @@ const {
   rescheduleSchema,
   cancelSchema,
   rejectSchema,
+  bookInstantSchema,
 } = require("../validators/appointment.validators");
 const ctrl = require("../controllers/appointments.controller");
 
 router.use(authenticate());
 
 router.post("/", validate(bookAppointmentSchema), ctrl.book);
+router.post("/instant", validate(bookInstantSchema), ctrl.bookInstant);
 router.get("/", ctrl.list);
 router.get("/:id", ctrl.getOne);
 router.patch("/:id/reschedule", validate(rescheduleSchema), ctrl.reschedule);

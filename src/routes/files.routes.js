@@ -6,7 +6,7 @@ const ctrl = require("../controllers/files.controller");
 
 // Must match UploadedFile's `module` enum exactly — also doubles as the on-disk
 // folder name under uploads/, so an unlisted value here would 500 on ENOENT anyway.
-const ALLOWED_MODULES = ["prescription", "report", "kyc", "profileImage"];
+const ALLOWED_MODULES = ["prescription", "report", "kyc", "profileImage", "signature"];
 
 // authenticate() is applied per-route (not via router.use) because this router is
 // mounted at "/" alongside other route groups — a blanket router.use(authenticate())

@@ -9,6 +9,17 @@ const { notFoundHandler, errorHandler } = require("./src/middleware/errorHandler
 
 const app = express();
 
+// Trust the first hop reverse proxy (Render/Heroku/nginx/etc.) so req.secure and
+// X-Forwarded-Proto reflect the client's real scheme, not the proxy's internal HTTP hop.
+app.set("trust proxy", 1);
+
+if (env.nodeEnv === "production") {
+  app.use((req, res, next) => {
+    if (req.secure || req.headers["x-forwarded-proto"] === "https") return next();
+    return res.redirect(301, `https://${req.headers.host}${req.originalUrl}`);
+  });
+}
+
 app.use(helmet());
 app.use(
   cors({

@@ -34,15 +34,18 @@ const create = asyncHandler(async (req, res) => {
     followUpInstructions,
   });
 
-  const [doctorUser, patientUser] = await Promise.all([
+  const [doctorUser, patientUser, signatureFile] = await Promise.all([
     User.findById(req.user.id).select("name"),
     User.findById(appointment.patient).select("name"),
+    doctor.signatureImage ? UploadedFile.findById(doctor.signatureImage).select("path") : null,
   ]);
 
   const { relativePath, mimetype, size } = await generatePrescriptionPdf({
     prescription,
     doctorName: doctorUser.name,
     patientName: patientUser.name,
+    registrationNumber: doctor.registrationNumber,
+    signatureImagePath: signatureFile?.path || null,
   });
 
   const pdfFile = await UploadedFile.create({
@@ -74,6 +77,19 @@ const create = asyncHandler(async (req, res) => {
     type: "prescription_issued",
     title: "New e-prescription",
     body: `Dr. ${doctorUser.name} issued you a prescription`,
+    data: { prescriptionId: prescription._id },
+  });
+
+  // Multi-channel delivery per spec 5.10 — text summary only (doctor name, date,
+  // prompt to open the app), not the PDF binary itself: attaching the PDF via WhatsApp
+  // media would require a public, unauthenticated file URL, which would undercut the
+  // authenticated-file-access model the rest of the app relies on.
+  await notify({
+    userId: appointment.patient,
+    channel: NOTIFICATION_CHANNELS.WHATSAPP,
+    type: "prescription_issued",
+    title: "New e-prescription",
+    body: `Dr. ${doctorUser.name} issued your prescription on ${new Date().toLocaleDateString()}. Open the DoconCall app to view and download it.`,
     data: { prescriptionId: prescription._id },
   });
 

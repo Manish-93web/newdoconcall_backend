@@ -1,11 +1,18 @@
 const Appointment = require("../models/Appointment");
 const DoctorProfile = require("../models/DoctorProfile");
+const ConsultationSession = require("../models/ConsultationSession");
+const PatientSubscription = require("../models/PatientSubscription");
 const { computeSplit } = require("../services/commission/commission.service");
 const { notify } = require("../services/notification/notification.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const asyncHandler = require("../utils/asyncHandler");
-const { APPOINTMENT_STATUSES, NOTIFICATION_CHANNELS, ROLES } = require("../config/constants");
+const {
+  APPOINTMENT_STATUSES,
+  NOTIFICATION_CHANNELS,
+  ROLES,
+  CONSULTATION_STATES,
+} = require("../config/constants");
 
 const POPULATE = [
   { path: "doctor", populate: { path: "user", select: "name" } },
@@ -90,6 +97,114 @@ const book = asyncHandler(async (req, res) => {
   return created(res, appointment, "Appointment booked");
 });
 
+// Ranks doctors for the "Speak to Doctor Now" instant-match flow: (1) must be manually
+// toggled available and not currently in an active call (computed live from
+// ConsultationSession, not a separately-stored "busy" flag that could get stuck),
+// (2) prior-treating-doctor for this patient sorts first, (3) then highest rating.
+// No numeric "wait time" is fabricated — availability is reduced to available/busy/offline.
+async function findBestAvailableDoctor(specializationId, patientId) {
+  const candidates = await DoctorProfile.find({
+    specializations: specializationId,
+    "verification.status": "verified",
+    isListed: true,
+    "liveStatus.state": "available",
+  }).select("_id user ratingAvg consultationFee");
+
+  if (!candidates.length) return null;
+
+  const activeSessions = await ConsultationSession.find({
+    state: { $in: [CONSULTATION_STATES.RINGING, CONSULTATION_STATES.CONNECTED, CONSULTATION_STATES.ON_HOLD] },
+  }).select("appointment");
+  const activeAppointments = await Appointment.find({
+    _id: { $in: activeSessions.map((s) => s.appointment) },
+  }).select("doctor");
+  const busyDoctorIds = new Set(activeAppointments.map((a) => a.doctor.toString()));
+
+  const idleCandidates = candidates.filter((d) => !busyDoctorIds.has(d._id.toString()));
+  if (!idleCandidates.length) return null;
+
+  const priorAppointments = await Appointment.find({
+    patient: patientId,
+    status: APPOINTMENT_STATUSES.COMPLETED,
+    doctor: { $in: idleCandidates.map((d) => d._id) },
+  }).select("doctor");
+  const priorDoctorIds = new Set(priorAppointments.map((a) => a.doctor.toString()));
+
+  idleCandidates.sort((a, b) => {
+    const aPrior = priorDoctorIds.has(a._id.toString()) ? 1 : 0;
+    const bPrior = priorDoctorIds.has(b._id.toString()) ? 1 : 0;
+    if (aPrior !== bPrior) return bPrior - aPrior;
+    return (b.ratingAvg || 0) - (a.ratingAvg || 0);
+  });
+
+  return idleCandidates[0];
+}
+
+const bookInstant = asyncHandler(async (req, res) => {
+  const { specializationId, mode } = req.body;
+  if (!specializationId || !mode) {
+    throw new ApiError(400, "MISSING_FIELDS", "specializationId and mode are required");
+  }
+  if (mode === "in_clinic") {
+    throw new ApiError(400, "INVALID_MODE", "Instant consult only supports video, voice, or chat");
+  }
+
+  const doctor = await findBestAvailableDoctor(specializationId, req.user.id);
+  if (!doctor) throw new ApiError(404, "NO_DOCTOR_AVAILABLE", "No doctor is available for this specialty right now");
+
+  const subscription = await PatientSubscription.findOne({
+    user: req.user.id,
+    status: "active",
+    sessionsRemaining: { $gt: 0 },
+  }).sort({ createdAt: -1 });
+
+  const scheduledStart = new Date();
+  const scheduledEnd = new Date(scheduledStart.getTime() + 30 * 60 * 1000);
+
+  let appointment;
+  if (subscription) {
+    // Funded by a session credit — confirmed immediately, deducted on completion (not
+    // here), so a session isn't wasted if the doctor never actually joins.
+    appointment = await Appointment.create({
+      patient: req.user.id,
+      doctor: doctor._id,
+      mode,
+      scheduledStart,
+      scheduledEnd,
+      bookingType: "instant",
+      fee: { amount: 0, commissionAmount: 0, doctorPayoutAmount: 0 },
+      status: APPOINTMENT_STATUSES.CONFIRMED,
+      sessionSource: subscription._id,
+    });
+  } else {
+    // No session credit available — instant consult is additive, not paywalled behind a
+    // subscription; falls through to the same pay-per-visit flow scheduled bookings use.
+    const amount = doctor.consultationFee[mode] || 0;
+    const { commissionAmount, netToProvider } = await computeSplit("appointment", amount);
+    appointment = await Appointment.create({
+      patient: req.user.id,
+      doctor: doctor._id,
+      mode,
+      scheduledStart,
+      scheduledEnd,
+      bookingType: "instant",
+      fee: { amount, commissionAmount, doctorPayoutAmount: netToProvider },
+      status: amount > 0 ? APPOINTMENT_STATUSES.PENDING_PAYMENT : APPOINTMENT_STATUSES.CONFIRMED,
+    });
+  }
+
+  await notify({
+    userId: doctor.user,
+    channel: NOTIFICATION_CHANNELS.IN_APP,
+    type: "instant_consult_matched",
+    title: "Instant consult request",
+    body: "A patient wants to speak with you now.",
+    data: { appointmentId: appointment._id },
+  });
+
+  return created(res, appointment, "Matched with an available doctor");
+});
+
 const list = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, status, clinicId } = req.query;
   const { skip } = parsePagination({ page, limit });
@@ -132,6 +247,14 @@ const reschedule = asyncHandler(async (req, res) => {
   const appointment = await Appointment.findById(req.params.id);
   if (!appointment) throw new ApiError(404, "NOT_FOUND", "Appointment not found");
   await assertParticipant(appointment, req.user);
+
+  const conflict = await Appointment.findOne({
+    _id: { $ne: appointment._id },
+    doctor: appointment.doctor,
+    scheduledStart: new Date(req.body.scheduledStart),
+    status: { $nin: [APPOINTMENT_STATUSES.CANCELLED] },
+  });
+  if (conflict) throw new ApiError(409, "SLOT_TAKEN", "This slot is no longer available");
 
   appointment.scheduledStart = req.body.scheduledStart;
   appointment.scheduledEnd = req.body.scheduledEnd;
@@ -184,7 +307,25 @@ const complete = asyncHandler(async (req, res) => {
   appointment.status = APPOINTMENT_STATUSES.COMPLETED;
   appointment.followUpWindowEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await appointment.save();
+
+  // Deduct on completion, not at match/booking time — a session credit isn't wasted if
+  // the doctor never actually joined the call.
+  if (appointment.sessionSource) {
+    await PatientSubscription.findByIdAndUpdate(appointment.sessionSource, {
+      $inc: { sessionsRemaining: -1, sessionsUsed: 1 },
+    });
+  }
+
+  await notify({
+    userId: appointment.patient,
+    channel: NOTIFICATION_CHANNELS.PUSH,
+    type: "follow_up_window_open",
+    title: "Free follow-up available",
+    body: "You can book a free follow-up with this doctor within the next 7 days.",
+    data: { appointmentId: appointment._id },
+  });
+
   return ok(res, appointment, "Appointment marked completed");
 });
 
-module.exports = { book, list, getOne, reschedule, cancel, accept, reject, complete };
+module.exports = { book, bookInstant, list, getOne, reschedule, cancel, accept, reject, complete };

@@ -3,6 +3,7 @@ const Appointment = require("../models/Appointment");
 const { geocodeAddress } = require("../services/maps/googleMaps.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
+const { sanitizeText } = require("../utils/sanitize");
 const asyncHandler = require("../utils/asyncHandler");
 
 const PUBLIC_POPULATE = [
@@ -11,16 +12,36 @@ const PUBLIC_POPULATE = [
 ];
 
 const search = asyncHandler(async (req, res) => {
-  const { lat, lng, radiusKm, specialization, minFee, maxFee, minRating, name, page, limit } = req.query;
+  const {
+    lat,
+    lng,
+    radiusKm,
+    specialization,
+    minFee,
+    maxFee,
+    minRating,
+    minExperience,
+    maxExperience,
+    clinicId,
+    name,
+    page,
+    limit,
+  } = req.query;
   const { skip } = parsePagination({ page, limit });
 
   const query = { "verification.status": "verified", isListed: true };
   if (specialization) query.specializations = specialization;
   if (minRating) query.ratingAvg = { $gte: Number(minRating) };
+  if (clinicId) query.clinics = clinicId;
   if (minFee || maxFee) {
     query["consultationFee.inClinic"] = {};
     if (minFee) query["consultationFee.inClinic"].$gte = Number(minFee);
     if (maxFee) query["consultationFee.inClinic"].$lte = Number(maxFee);
+  }
+  if (minExperience || maxExperience) {
+    query.experienceYears = {};
+    if (minExperience) query.experienceYears.$gte = Number(minExperience);
+    if (maxExperience) query.experienceYears.$lte = Number(maxExperience);
   }
   if (lat && lng) {
     // $near forces an implicit distance sort and is rejected by countDocuments'
@@ -68,6 +89,20 @@ const getMyProfile = asyncHandler(async (req, res) => {
   return ok(res, doctor);
 });
 
+const setLiveStatus = asyncHandler(async (req, res) => {
+  const { state } = req.body;
+  if (!["available", "offline"].includes(state)) {
+    throw new ApiError(400, "INVALID_STATE", "state must be 'available' or 'offline'");
+  }
+  const doctor = await DoctorProfile.findOneAndUpdate(
+    { user: req.user.id },
+    { liveStatus: { state, updatedAt: new Date() } },
+    { new: true }
+  );
+  if (!doctor) throw new ApiError(404, "NOT_FOUND", "Doctor profile not found — create one first");
+  return ok(res, doctor, "Live status updated");
+});
+
 async function geocodeIfNeeded(payload) {
   if (payload.address?.line1 || payload.address?.city) {
     const geo = await geocodeAddress(payload.address);
@@ -78,6 +113,7 @@ async function geocodeIfNeeded(payload) {
 
 const upsertMyProfile = asyncHandler(async (req, res) => {
   const payload = await geocodeIfNeeded({ ...req.body });
+  if (payload.bio) payload.bio = sanitizeText(payload.bio);
   const existing = await DoctorProfile.findOne({ user: req.user.id });
 
   if (existing) {
@@ -159,4 +195,5 @@ module.exports = {
   upsertMyProfile,
   getAvailability,
   submitVerificationDocuments,
+  setLiveStatus,
 };

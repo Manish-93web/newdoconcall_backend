@@ -1,10 +1,15 @@
 const router = require("express").Router();
 const { authenticate } = require("../middleware/auth.middleware");
 const { allowRoles } = require("../middleware/rbac.middleware");
+const { validate } = require("../middleware/validate.middleware");
+const { updatePlatformSettingsSchema } = require("../validators/platformSettings.validators");
 const { ROLES } = require("../config/constants");
 const ctrl = require("../controllers/admin.controller");
 
 router.use(authenticate(), allowRoles(ROLES.PLATFORM_ADMIN));
+
+router.get("/platform-settings", ctrl.getSettings);
+router.patch("/platform-settings", validate(updatePlatformSettingsSchema), ctrl.updateSettings);
 
 router.get("/users", ctrl.listUsers);
 router.patch("/users/:id/suspend", ctrl.suspendUser);

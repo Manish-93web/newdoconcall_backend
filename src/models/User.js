@@ -9,8 +9,12 @@ const addressSchema = new mongoose.Schema(
     city: String,
     state: String,
     pincode: String,
+    // No default on `type` — see DoctorProfile.js's geoPointSchema comment for why: a
+    // default here would make Mongoose auto-vivify a coordinate-less Point on any address
+    // pushed without geo (e.g. a home address saved via PATCH /users/me), which the
+    // 2dsphere index below rejects at write time.
     geo: {
-      type: { type: String, enum: ["Point"], default: "Point" },
+      type: { type: String, enum: ["Point"] },
       coordinates: { type: [Number], default: undefined }, // [lng, lat]
     },
   },
@@ -32,7 +36,14 @@ const userSchema = new mongoose.Schema(
     ],
     dob: Date,
     gender: { type: String, enum: ["male", "female", "other"] },
+    medicalHistory: {
+      bloodGroup: String,
+      allergies: [String],
+      chronicConditions: [String],
+      notes: String,
+    },
     profileImage: { type: mongoose.Schema.Types.ObjectId, ref: "UploadedFile" },
+    healthId: { type: String, unique: true, sparse: true },
     isEmailVerified: { type: Boolean, default: false },
     isPhoneVerified: { type: Boolean, default: false },
     addresses: [addressSchema],

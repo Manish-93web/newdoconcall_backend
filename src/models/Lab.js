@@ -9,8 +9,9 @@ const labSchema = new mongoose.Schema(
       city: String,
       state: String,
       pincode: String,
+      // No default on `type` — see DoctorProfile.js's geoPointSchema comment for why.
       geo: {
-        type: { type: String, enum: ["Point"], default: "Point" },
+        type: { type: String, enum: ["Point"] },
         coordinates: { type: [Number], default: undefined },
       },
     },

@@ -4,6 +4,7 @@ const ClinicProfile = require("../models/ClinicProfile");
 const Appointment = require("../models/Appointment");
 const Payment = require("../models/Payment");
 const ConsultationSession = require("../models/ConsultationSession");
+const PlatformSetting = require("../models/PlatformSetting");
 const { ok, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const asyncHandler = require("../utils/asyncHandler");
@@ -175,6 +176,20 @@ const analyticsOverview = asyncHandler(async (req, res) => {
   });
 });
 
+// --- Platform settings ---
+
+const getSettings = asyncHandler(async (req, res) => {
+  const settings = await PlatformSetting.getSettings();
+  return ok(res, settings);
+});
+
+const updateSettings = asyncHandler(async (req, res) => {
+  const settings = await PlatformSetting.getSettings();
+  Object.assign(settings, req.body);
+  await settings.save();
+  return ok(res, settings, "Platform settings updated");
+});
+
 module.exports = {
   listUsers,
   suspendUser,
@@ -188,4 +203,6 @@ module.exports = {
   listAppointments,
   listPayments,
   analyticsOverview,
+  getSettings,
+  updateSettings,
 };

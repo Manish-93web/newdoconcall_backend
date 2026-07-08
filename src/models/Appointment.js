@@ -30,6 +30,9 @@ const appointmentSchema = new mongoose.Schema(
     },
     followUpWindowEndsAt: Date,
     parentAppointment: { type: mongoose.Schema.Types.ObjectId, ref: "Appointment", default: null },
+    // Set when an instant consult is funded by a session credit instead of a Stripe
+    // charge — complete() decrements this subscription's sessionsRemaining.
+    sessionSource: { type: mongoose.Schema.Types.ObjectId, ref: "PatientSubscription", default: null },
   },
   { timestamps: true }
 );

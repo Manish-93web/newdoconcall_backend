@@ -27,4 +27,11 @@ const rejectSchema = Joi.object({
   reason: Joi.string().allow("").max(500),
 });
 
-module.exports = { bookAppointmentSchema, rescheduleSchema, cancelSchema, rejectSchema };
+const bookInstantSchema = Joi.object({
+  specializationId: Joi.string().required(),
+  mode: Joi.string()
+    .valid(...Object.values(APPOINTMENT_MODES).filter((m) => m !== "in_clinic"))
+    .required(),
+});
+
+module.exports = { bookAppointmentSchema, rescheduleSchema, cancelSchema, rejectSchema, bookInstantSchema };

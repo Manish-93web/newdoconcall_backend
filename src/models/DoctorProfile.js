@@ -1,8 +1,13 @@
 const mongoose = require("mongoose");
 const { VERIFICATION_STATUSES } = require("../config/constants");
 
+// No default on `type` here deliberately — a default would make Mongoose auto-vivify
+// `address.geo = { type: "Point" }` (no coordinates) on every insert that omits an
+// address entirely, which the 2dsphere index below then rejects at write time
+// ("Can't extract geo keys"). Leaving both fields default-free means `geo` simply stays
+// unset unless geocodeAddress() explicitly assigns type+coordinates together.
 const geoPointSchema = {
-  type: { type: String, enum: ["Point"], default: "Point" },
+  type: { type: String, enum: ["Point"] },
   coordinates: { type: [Number], default: undefined }, // [lng, lat]
 };
 
@@ -66,6 +71,13 @@ const doctorProfileSchema = new mongoose.Schema(
       ifsc: String,
       upiId: String,
     },
+    // Doctor-controlled presence for the "Speak to Doctor Now" instant-match flow —
+    // separate from the weekly availability[] schedule above, which is for slot booking.
+    liveStatus: {
+      state: { type: String, enum: ["available", "offline"], default: "offline" },
+      updatedAt: Date,
+    },
+    signatureImage: { type: mongoose.Schema.Types.ObjectId, ref: "UploadedFile", default: null },
   },
   { timestamps: true }
 );

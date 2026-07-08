@@ -5,9 +5,13 @@ const DiagnosticBooking = require("../models/DiagnosticBooking");
 const ClinicProfile = require("../models/ClinicProfile");
 const DoctorProfile = require("../models/DoctorProfile");
 const PlatformSetting = require("../models/PlatformSetting");
+const SubscriptionPlan = require("../models/SubscriptionPlan");
+const PatientSubscription = require("../models/PatientSubscription");
+const User = require("../models/User");
 const { createPaymentIntent, constructWebhookEvent } = require("../services/payment/stripe.service");
 const { computeSplit } = require("../services/commission/commission.service");
 const { notify } = require("../services/notification/notification.service");
+const { generateHealthId } = require("../services/subscription/subscription.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
 const { PAYMENT_PURPOSES, PAYMENT_STATUSES, NOTIFICATION_CHANNELS, APPOINTMENT_STATUSES } = require("../config/constants");
@@ -21,6 +25,7 @@ const REFERENCE_MODEL = {
   [PAYMENT_PURPOSES.DIAGNOSTIC_BOOKING]: "DiagnosticBooking",
   [PAYMENT_PURPOSES.CLINIC_SUBSCRIPTION]: "ClinicProfile",
   [PAYMENT_PURPOSES.DOCTOR_LISTING_FEE]: "DoctorProfile",
+  [PAYMENT_PURPOSES.PATIENT_SUBSCRIPTION]: "SubscriptionPlan",
 };
 
 async function resolveAmountAndOwnership(purpose, referenceId, userId, planName) {
@@ -58,6 +63,13 @@ async function resolveAmountAndOwnership(purpose, referenceId, userId, planName)
       if (doctor.user.toString() !== userId) throw new ApiError(403, "FORBIDDEN", "Not your doctor profile");
       const settings = await PlatformSetting.getSettings();
       return { amount: settings.doctorListingFee, doc: doctor };
+    }
+    case PAYMENT_PURPOSES.PATIENT_SUBSCRIPTION: {
+      // No ownership check — referenceId is the plan being purchased (not an existing
+      // owned resource), any authenticated patient may buy any active plan for themselves.
+      const plan = await SubscriptionPlan.findById(referenceId);
+      if (!plan || !plan.isActive) throw new ApiError(404, "NOT_FOUND", "Subscription plan not found");
+      return { amount: plan.price, doc: plan, plan };
     }
     default:
       throw new ApiError(400, "INVALID_PURPOSE", "Unsupported payment purpose");
@@ -134,6 +146,41 @@ async function applySideEffect(payment) {
     }
     case PAYMENT_PURPOSES.DOCTOR_LISTING_FEE: {
       await DoctorProfile.findByIdAndUpdate(payment.referenceId, { listingFeeStatus: "paid", isListed: true });
+      break;
+    }
+    case PAYMENT_PURPOSES.PATIENT_SUBSCRIPTION: {
+      const plan = await SubscriptionPlan.findById(payment.referenceId);
+      if (!plan) break;
+
+      // A new purchase supersedes whatever active subscription the patient had —
+      // one active row per patient, matching PatientSubscription's stated invariant.
+      await PatientSubscription.updateMany({ user: payment.user, status: "active" }, { status: "expired" });
+
+      const expiresAt =
+        plan.billingCycle === "annual" ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) : null;
+      await PatientSubscription.create({
+        user: payment.user,
+        plan: plan._id,
+        sessionsRemaining: plan.sessionsIncluded,
+        status: "active",
+        expiresAt,
+        payment: payment._id,
+      });
+
+      const patientUser = await User.findById(payment.user).select("healthId");
+      if (patientUser && !patientUser.healthId) {
+        patientUser.healthId = await generateHealthId();
+        await patientUser.save();
+      }
+
+      await notify({
+        userId: payment.user,
+        channel: NOTIFICATION_CHANNELS.PUSH,
+        type: "subscription_activated",
+        title: "Subscription activated",
+        body: `Your ${plan.name} is now active — ${plan.sessionsIncluded} session(s) available.`,
+        data: { planId: plan._id },
+      });
       break;
     }
   }

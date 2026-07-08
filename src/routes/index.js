@@ -26,5 +26,9 @@ router.use("/admin", require("./admin.routes"));
 router.use("/reviews", require("./reviews.routes"));
 router.use("/notifications", require("./notifications.routes"));
 router.use("/platform-settings", require("./platformSettings.routes"));
+router.use("/invoices", require("./invoices.routes"));
+router.use("/health-tags", require("./healthTags.routes"));
+router.use("/subscription-plans", require("./subscriptionPlans.routes"));
+router.use("/subscriptions", require("./patientSubscriptions.routes"));
 
 module.exports = router;
