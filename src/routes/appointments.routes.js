@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const { authenticate } = require("../middleware/auth.middleware");
+const { allowRoles } = require("../middleware/rbac.middleware");
 const { validate } = require("../middleware/validate.middleware");
 const {
   bookAppointmentSchema,
@@ -9,12 +10,15 @@ const {
   bookInstantSchema,
   messagePatientSchema,
 } = require("../validators/appointment.validators");
+const { ROLES } = require("../config/constants");
 const ctrl = require("../controllers/appointments.controller");
 
 router.use(authenticate());
 
-router.post("/", validate(bookAppointmentSchema), ctrl.book);
-router.post("/instant", validate(bookInstantSchema), ctrl.bookInstant);
+// Booking records the caller as the patient (req.user.id) — without this guard, any
+// authenticated role (doctor, admin) could book itself an appointment as "the patient".
+router.post("/", allowRoles(ROLES.PATIENT), validate(bookAppointmentSchema), ctrl.book);
+router.post("/instant", allowRoles(ROLES.PATIENT), validate(bookInstantSchema), ctrl.bookInstant);
 router.get("/", ctrl.list);
 router.get("/:id", ctrl.getOne);
 router.get("/:id/patient-snapshot", ctrl.patientSnapshot);

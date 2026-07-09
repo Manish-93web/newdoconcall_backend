@@ -32,6 +32,7 @@ const bookInstantSchema = Joi.object({
   mode: Joi.string()
     .valid(...Object.values(APPOINTMENT_MODES).filter((m) => m !== "in_clinic"))
     .required(),
+  doctorId: Joi.string(),
 });
 
 const messagePatientSchema = Joi.object({

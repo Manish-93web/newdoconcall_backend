@@ -101,11 +101,24 @@ const book = asyncHandler(async (req, res) => {
   return created(res, appointment, "Appointment booked");
 });
 
+// Computed live from ConsultationSession on every call, not a separately-stored "busy"
+// flag that could get stuck out of sync. Shared by the auto-match path below and by
+// bookInstant's explicit-doctorId path (a patient picking a specific doctor off the list).
+async function getBusyDoctorIds(candidateIds) {
+  const activeSessions = await ConsultationSession.find({
+    state: { $in: [CONSULTATION_STATES.RINGING, CONSULTATION_STATES.CONNECTED, CONSULTATION_STATES.ON_HOLD] },
+  }).select("appointment");
+  const activeAppointments = await Appointment.find({
+    _id: { $in: activeSessions.map((s) => s.appointment) },
+    ...(candidateIds ? { doctor: { $in: candidateIds } } : {}),
+  }).select("doctor");
+  return new Set(activeAppointments.map((a) => a.doctor.toString()));
+}
+
 // Ranks doctors for the "Speak to Doctor Now" instant-match flow: (1) must be manually
-// toggled available and not currently in an active call (computed live from
-// ConsultationSession, not a separately-stored "busy" flag that could get stuck),
-// (2) prior-treating-doctor for this patient sorts first, (3) then highest rating.
-// No numeric "wait time" is fabricated — availability is reduced to available/busy/offline.
+// toggled available and not currently in an active call, (2) prior-treating-doctor for
+// this patient sorts first, (3) then highest rating. No numeric "wait time" is fabricated
+// — availability is reduced to available/busy/offline.
 async function findBestAvailableDoctor(specializationId, patientId) {
   const candidates = await DoctorProfile.find({
     specializations: specializationId,
@@ -116,13 +129,7 @@ async function findBestAvailableDoctor(specializationId, patientId) {
 
   if (!candidates.length) return null;
 
-  const activeSessions = await ConsultationSession.find({
-    state: { $in: [CONSULTATION_STATES.RINGING, CONSULTATION_STATES.CONNECTED, CONSULTATION_STATES.ON_HOLD] },
-  }).select("appointment");
-  const activeAppointments = await Appointment.find({
-    _id: { $in: activeSessions.map((s) => s.appointment) },
-  }).select("doctor");
-  const busyDoctorIds = new Set(activeAppointments.map((a) => a.doctor.toString()));
+  const busyDoctorIds = await getBusyDoctorIds(candidates.map((d) => d._id));
 
   const idleCandidates = candidates.filter((d) => !busyDoctorIds.has(d._id.toString()));
   if (!idleCandidates.length) return null;
@@ -145,7 +152,7 @@ async function findBestAvailableDoctor(specializationId, patientId) {
 }
 
 const bookInstant = asyncHandler(async (req, res) => {
-  const { specializationId, mode } = req.body;
+  const { specializationId, mode, doctorId } = req.body;
   if (!specializationId || !mode) {
     throw new ApiError(400, "MISSING_FIELDS", "specializationId and mode are required");
   }
@@ -153,7 +160,28 @@ const bookInstant = asyncHandler(async (req, res) => {
     throw new ApiError(400, "INVALID_MODE", "Instant consult only supports video, voice, or chat");
   }
 
-  const doctor = await findBestAvailableDoctor(specializationId, req.user.id);
+  let doctor;
+  if (doctorId) {
+    // Patient picked a specific doctor off the "who's available now" list — re-validate
+    // server-side rather than trusting the client's view, since availability can change
+    // in the seconds between loading that list and tapping Connect.
+    doctor = await DoctorProfile.findOne({
+      _id: doctorId,
+      specializations: specializationId,
+      "verification.status": "verified",
+      isListed: true,
+      "liveStatus.state": "available",
+    }).select("_id user ratingAvg consultationFee");
+    if (!doctor) {
+      throw new ApiError(404, "DOCTOR_NOT_FOUND", "This doctor isn't available right now — please pick another");
+    }
+    const busyDoctorIds = await getBusyDoctorIds([doctor._id]);
+    if (busyDoctorIds.has(doctor._id.toString())) {
+      throw new ApiError(409, "DOCTOR_BUSY", "This doctor just became busy — please pick another");
+    }
+  } else {
+    doctor = await findBestAvailableDoctor(specializationId, req.user.id);
+  }
   if (!doctor) throw new ApiError(404, "NO_DOCTOR_AVAILABLE", "No doctor is available for this specialty right now");
 
   const subscription = await PatientSubscription.findOne({

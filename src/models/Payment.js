@@ -7,7 +7,7 @@ const paymentSchema = new mongoose.Schema(
     purpose: { type: String, enum: Object.values(PAYMENT_PURPOSES), required: true },
     referenceModel: {
       type: String,
-      enum: ["Appointment", "PharmacyOrder", "DiagnosticBooking", "ClinicProfile", "DoctorProfile"],
+      enum: ["Appointment", "PharmacyOrder", "DiagnosticBooking", "ClinicProfile", "DoctorProfile", "SubscriptionPlan"],
       required: true,
     },
     referenceId: { type: mongoose.Schema.Types.ObjectId, required: true, refPath: "referenceModel" },

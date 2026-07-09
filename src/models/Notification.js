@@ -14,6 +14,9 @@ const notificationSchema = new mongoose.Schema(
       enum: ["queued", "sent", "failed", "read"],
       default: "queued",
     },
+    // Separate from `status` (delivery outcome — did the push/SMS/etc actually send) so
+    // marking read/unread in the UI never overwrites delivery tracking.
+    isRead: { type: Boolean, default: false, index: true },
     readAt: Date,
   },
   { timestamps: true }
