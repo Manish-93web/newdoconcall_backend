@@ -8,6 +8,7 @@ const ctrl = require("../controllers/payments.controller");
 router.post("/webhook", ctrl.webhook);
 
 router.post("/create-intent", authenticate(), validate(createIntentSchema), ctrl.createIntent);
+router.post("/:id/confirm", authenticate(), ctrl.confirmPayment);
 router.get("/:id", authenticate(), ctrl.getOne);
 
 module.exports = router;

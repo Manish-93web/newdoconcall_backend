@@ -6,6 +6,7 @@ const { startAppointmentReminderJob } = require("./src/jobs/appointmentReminders
 const { startRefillReminderJob } = require("./src/jobs/refillReminders.job");
 const { startDiagnosticReminderJob } = require("./src/jobs/diagnosticReminders.job");
 const { startPayoutGenerationJob } = require("./src/jobs/payoutGeneration.job");
+const { sweepStaleRingingSessions } = require("./src/jobs/missedCallTimeout.job");
 const { attachSockets } = require("./src/sockets");
 
 const server = http.createServer(app);
@@ -14,6 +15,7 @@ app.set("io", io);
 
 async function start() {
   await connectDB();
+  await sweepStaleRingingSessions();
   startAppointmentReminderJob();
   startRefillReminderJob();
   startDiagnosticReminderJob();

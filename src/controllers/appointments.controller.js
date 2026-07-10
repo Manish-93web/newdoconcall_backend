@@ -8,6 +8,7 @@ const Prescription = require("../models/Prescription");
 const PlatformSetting = require("../models/PlatformSetting");
 const { computeSplit } = require("../services/commission/commission.service");
 const { notify } = require("../services/notification/notification.service");
+const { RING_TIMEOUT_MS } = require("../jobs/missedCallTimeout.job");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const asyncHandler = require("../utils/asyncHandler");
@@ -105,8 +106,16 @@ const book = asyncHandler(async (req, res) => {
 // flag that could get stuck out of sync. Shared by the auto-match path below and by
 // bookInstant's explicit-doctorId path (a patient picking a specific doctor off the list).
 async function getBusyDoctorIds(candidateIds) {
+  // A "ringing" session older than the ring-timeout window should already have flipped to
+  // "missed" (see missedCallTimeout.job.js) — excluding stale ones here is a safety net
+  // for the gap between a stuck session existing and the next restart's startup sweep
+  // catching it, so one orphaned session can't pin a doctor as busy indefinitely.
+  const ringingCutoff = new Date(Date.now() - RING_TIMEOUT_MS);
   const activeSessions = await ConsultationSession.find({
-    state: { $in: [CONSULTATION_STATES.RINGING, CONSULTATION_STATES.CONNECTED, CONSULTATION_STATES.ON_HOLD] },
+    $or: [
+      { state: { $in: [CONSULTATION_STATES.CONNECTED, CONSULTATION_STATES.ON_HOLD] } },
+      { state: CONSULTATION_STATES.RINGING, createdAt: { $gte: ringingCutoff } },
+    ],
   }).select("appointment");
   const activeAppointments = await Appointment.find({
     _id: { $in: activeSessions.map((s) => s.appointment) },

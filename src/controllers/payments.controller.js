@@ -8,7 +8,7 @@ const PlatformSetting = require("../models/PlatformSetting");
 const SubscriptionPlan = require("../models/SubscriptionPlan");
 const PatientSubscription = require("../models/PatientSubscription");
 const User = require("../models/User");
-const { createPaymentIntent, constructWebhookEvent } = require("../services/payment/stripe.service");
+const { createPaymentIntent, constructWebhookEvent, retrievePaymentIntent } = require("../services/payment/stripe.service");
 const { computeSplit } = require("../services/commission/commission.service");
 const { notify } = require("../services/notification/notification.service");
 const { generateHealthId } = require("../services/subscription/subscription.service");
@@ -186,6 +186,19 @@ async function applySideEffect(payment) {
   }
 }
 
+// Shared by both confirmation paths (the async webhook, and the synchronous reconcile
+// endpoint below) so "mark succeeded + apply side effect" only ever happens in one place —
+// idempotent via the status check, so it's safe if both paths end up calling it for the
+// same payment.
+async function markPaymentSucceeded(payment, intent) {
+  if (payment.status === PAYMENT_STATUSES.SUCCEEDED) return payment;
+  payment.status = PAYMENT_STATUSES.SUCCEEDED;
+  payment.stripeChargeId = intent.latest_charge;
+  await payment.save();
+  await applySideEffect(payment);
+  return payment;
+}
+
 const webhook = asyncHandler(async (req, res) => {
   const signature = req.headers["stripe-signature"];
   let event;
@@ -199,12 +212,7 @@ const webhook = asyncHandler(async (req, res) => {
   if (event.type === "payment_intent.succeeded") {
     const intent = event.data.object;
     const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
-    if (payment && payment.status !== PAYMENT_STATUSES.SUCCEEDED) {
-      payment.status = PAYMENT_STATUSES.SUCCEEDED;
-      payment.stripeChargeId = intent.latest_charge;
-      await payment.save();
-      await applySideEffect(payment);
-    }
+    if (payment) await markPaymentSucceeded(payment, intent);
   } else if (event.type === "payment_intent.payment_failed") {
     const intent = event.data.object;
     await Payment.findOneAndUpdate({ stripePaymentIntentId: intent.id }, { status: PAYMENT_STATUSES.FAILED });
@@ -222,4 +230,26 @@ const getOne = asyncHandler(async (req, res) => {
   return ok(res, payment);
 });
 
-module.exports = { createIntent, webhook, getOne };
+// Called by the client right after Stripe confirms payment success in the browser/app —
+// that client-side confirmation and our backend's webhook are two independent, unordered
+// round-trips to Stripe, so the webhook can easily still be in flight (or, without webhook
+// forwarding configured, never arrive) at the exact moment the client wants to act on the
+// payment (e.g. starting a consultation). This asks Stripe directly instead of waiting.
+const confirmPayment = asyncHandler(async (req, res) => {
+  const payment = await Payment.findById(req.params.id);
+  if (!payment) throw new ApiError(404, "NOT_FOUND", "Payment not found");
+  if (payment.user.toString() !== req.user.id) {
+    throw new ApiError(403, "FORBIDDEN", "You cannot confirm this payment");
+  }
+
+  if (payment.status !== PAYMENT_STATUSES.SUCCEEDED && payment.stripePaymentIntentId) {
+    const intent = await retrievePaymentIntent(payment.stripePaymentIntentId);
+    if (intent.status === "succeeded") {
+      await markPaymentSucceeded(payment, intent);
+    }
+  }
+
+  return ok(res, payment);
+});
+
+module.exports = { createIntent, webhook, getOne, confirmPayment };

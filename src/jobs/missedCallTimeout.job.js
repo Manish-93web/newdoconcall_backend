@@ -47,4 +47,21 @@ function cancelMissedCallCheck(sessionId) {
   }
 }
 
-module.exports = { scheduleMissedCallCheck, cancelMissedCallCheck };
+// The in-memory timers above don't survive a process restart — if the backend restarts
+// (deploy, crash, nodemon reload in dev) while a call is mid-ring, that session is
+// orphaned in "ringing" forever with no timer left to resolve it, which also permanently
+// pins its doctor as "busy" (see appointments.controller.js's getBusyDoctorIds). Run once
+// at startup to catch anything that was already stuck before this process existed.
+async function sweepStaleRingingSessions() {
+  const cutoff = new Date(Date.now() - RING_TIMEOUT_MS);
+  const stale = await ConsultationSession.find({ state: CONSULTATION_STATES.RINGING, createdAt: { $lt: cutoff } });
+  for (const session of stale) {
+    session.state = CONSULTATION_STATES.MISSED;
+    session.endedAt = new Date();
+    session.endReason = "no_answer";
+    await session.save();
+  }
+  if (stale.length) log.info(`Swept ${stale.length} stale ringing session(s) orphaned by a prior restart`);
+}
+
+module.exports = { scheduleMissedCallCheck, cancelMissedCallCheck, sweepStaleRingingSessions, RING_TIMEOUT_MS };
