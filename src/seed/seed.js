@@ -66,6 +66,23 @@ const DIAGNOSTIC_TESTS = [
   { name: "Chest X-Ray", category: "Radiology", sampleType: "Imaging", basePrice: 350, reportTurnaroundHours: 4 },
   { name: "MRI Brain", category: "Radiology", sampleType: "Imaging", basePrice: 4500, reportTurnaroundHours: 24 },
   { name: "Full Body Checkup", category: "Package", sampleType: "Blood + Urine", basePrice: 1500, reportTurnaroundHours: 24 },
+  {
+    name: "Endometrial Biopsy",
+    category: "Histopathology",
+    sampleType: "Tissue",
+    basePrice: 900,
+    reportTurnaroundHours: 72,
+    preparationInstructions: "Performed by a gynecologist; the platform books processing of the collected tissue sample.",
+    // Narrative report (gross + microscopic examination, pathologist's impression) — no
+    // numeric parameters, so no measured value has a "reference range" in the usual sense.
+    subTests: [
+      {
+        name: "Histopathological Examination",
+        unit: "N/A",
+        referenceRange: "Descriptive report, interpreted by pathologist (no standard numeric range)",
+      },
+    ],
+  },
 ];
 
 async function seedDiagnosticTests() {
@@ -75,29 +92,45 @@ async function seedDiagnosticTests() {
   console.log(`[seed] Diagnostic tests ensured (${DIAGNOSTIC_TESTS.length})`);
 }
 
-async function seedSampleLab() {
-  const existing = await Lab.findOne({ name: "DoconCall Diagnostics — MG Road" });
-  if (existing) return console.log("[seed] Sample lab already exists");
+function offeringFor(test) {
+  return {
+    test: test._id,
+    price: test.basePrice,
+    homeCollectionAvailable: test.category !== "Radiology",
+    homeCollectionFee: test.category !== "Radiology" ? 100 : 0,
+  };
+}
 
+async function seedSampleLab() {
   const tests = await DiagnosticTest.find();
-  await Lab.create({
-    name: "DoconCall Diagnostics — MG Road",
-    address: {
-      line1: "MG Road",
-      city: "Bengaluru",
-      state: "Karnataka",
-      pincode: "560001",
-      geo: { type: "Point", coordinates: [77.6094017, 12.9747431] },
-    },
-    testsOffered: tests.map((t) => ({
-      test: t._id,
-      price: t.basePrice,
-      homeCollectionAvailable: t.category !== "Radiology",
-      homeCollectionFee: t.category !== "Radiology" ? 100 : 0,
-    })),
-    verification: { status: "verified" },
-  });
-  console.log("[seed] Sample lab created");
+  const lab = await Lab.findOne({ name: "DoconCall Diagnostics — MG Road" });
+
+  if (!lab) {
+    await Lab.create({
+      name: "DoconCall Diagnostics — MG Road",
+      address: {
+        line1: "MG Road",
+        city: "Bengaluru",
+        state: "Karnataka",
+        pincode: "560001",
+        geo: { type: "Point", coordinates: [77.6094017, 12.9747431] },
+      },
+      testsOffered: tests.map(offeringFor),
+      verification: { status: "verified" },
+    });
+    return console.log("[seed] Sample lab created");
+  }
+
+  // Lab already exists (this script has run before) — the catalog can still grow over
+  // time, so backfill any test that isn't in its testsOffered list yet instead of
+  // silently leaving new tests unbookable everywhere.
+  const offeredIds = new Set(lab.testsOffered.map((o) => o.test.toString()));
+  const missing = tests.filter((t) => !offeredIds.has(t._id.toString()));
+  if (!missing.length) return console.log("[seed] Sample lab already offers all catalog tests");
+
+  lab.testsOffered.push(...missing.map(offeringFor));
+  await lab.save();
+  console.log(`[seed] Added ${missing.length} new test(s) to sample lab: ${missing.map((t) => t.name).join(", ")}`);
 }
 
 async function seedClinicSubscriptionPlans() {

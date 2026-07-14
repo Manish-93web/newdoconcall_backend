@@ -61,7 +61,13 @@ module.exports = {
     serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "",
   },
   uploadStorageProvider: process.env.UPLOAD_STORAGE_PROVIDER || "local",
-  corsOrigins: (process.env.CORS_ORIGINS || "http://localhost:3000").split(","),
-  socketCorsOrigins: (process.env.SOCKET_CORS_ORIGINS || "http://localhost:3000").split(","),
+  corsOrigins: (process.env.CORS_ORIGINS || "http://localhost:3000")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+  socketCorsOrigins: (process.env.SOCKET_CORS_ORIGINS || "http://localhost:3000")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
   apiBaseUrl: process.env.API_BASE_URL || "http://localhost:5000",
 };
