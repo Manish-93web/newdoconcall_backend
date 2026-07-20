@@ -24,6 +24,13 @@ module.exports = {
     clientId: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
     clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
   },
+  // Sign in with Apple. clientId = Services ID (used by the web client's identity
+  // token audience); bundleId = the iOS app's bundle identifier (used by the native
+  // client's identity token audience). Leave both blank to keep /auth/apple "not configured".
+  appleOAuth: {
+    clientId: process.env.APPLE_CLIENT_ID || "",
+    bundleId: process.env.APPLE_BUNDLE_ID || "",
+  },
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY || "",
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
@@ -45,6 +52,10 @@ module.exports = {
   // Android SMS Retriever API app hash — appended to outgoing OTP SMS bodies so the
   // mobile app can auto-read the code. Blank = simply omitted, manual entry still works.
   smsAppHash: process.env.SMS_APP_HASH || "",
+  // Domain the web frontend is served from, used to bind OTP SMS to that origin for the
+  // WebOTP API (navigator.credentials.get({ otp: ... })). Leave blank to skip — web falls
+  // back to manual OTP entry, same as when SMS_APP_HASH is blank for the mobile app.
+  webOtpDomain: process.env.WEBOTP_DOMAIN || "",
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID || "",
     authToken: process.env.TWILIO_AUTH_TOKEN || "",

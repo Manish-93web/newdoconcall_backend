@@ -15,10 +15,21 @@ const consultationSessionSchema = new mongoose.Schema(
     participants: [
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        role: { type: String, enum: ["patient", "doctor"] },
+        // "specialist" = a doctor invited mid-call for a second opinion, not part of the
+        // original appointment — see consultations.controller.js's invite()/acceptInvite().
+        role: { type: String, enum: ["patient", "doctor", "specialist"] },
         joinedAt: Date,
         leftAt: Date,
         socketId: String,
+      },
+    ],
+    // Doctors invited but who haven't accepted yet. Moved into `participants` (role:
+    // "specialist") on accept, or removed outright on decline — see consultations.controller.js.
+    pendingInvites: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        invitedAt: { type: Date, default: Date.now },
       },
     ],
     startedAt: Date,

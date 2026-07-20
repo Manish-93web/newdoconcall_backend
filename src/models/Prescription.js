@@ -16,6 +16,7 @@ const prescriptionSchema = new mongoose.Schema(
       },
     ],
     diagnosis: [String],
+    labTests: [String],
     advice: String,
     followUpInstructions: String,
     pdfFile: { type: mongoose.Schema.Types.ObjectId, ref: "UploadedFile" },

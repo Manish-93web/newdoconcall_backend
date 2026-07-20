@@ -14,13 +14,14 @@ class WhatsappNotificationProvider extends NotificationProvider {
     this.client = twilio(env.twilio.accountSid, env.twilio.authToken);
   }
 
-  async sendWhatsapp(to, message) {
+  async sendWhatsapp(to, message, mediaUrl) {
     const result = await this.client.messages.create({
       to: `whatsapp:${to}`,
       from: `whatsapp:${env.twilio.whatsappFrom}`,
       body: message,
+      ...(mediaUrl ? { mediaUrl: [mediaUrl] } : {}),
     });
-    log.info(`WHATSAPP -> ${to} (sid ${result.sid})`);
+    log.info(`WHATSAPP -> ${to} (sid ${result.sid})${mediaUrl ? " with media" : ""}`);
     return { delivered: true, provider: "twilio-whatsapp", sid: result.sid };
   }
 }

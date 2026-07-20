@@ -2,10 +2,15 @@ const { v4: uuid } = require("uuid");
 const ConsultationSession = require("../models/ConsultationSession");
 const Appointment = require("../models/Appointment");
 const DoctorProfile = require("../models/DoctorProfile");
+const { notify } = require("../services/notification/notification.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
-const { CONSULTATION_STATES, ROLES } = require("../config/constants");
+const { CONSULTATION_STATES, ROLES, NOTIFICATION_CHANNELS } = require("../config/constants");
 const { getIceServers } = require("../services/webrtc/iceServers.service");
+
+// Full-mesh WebRTC cost is N-1 PeerConnections per device — fine at this cap (see
+// signaling.socket.js), impractical much beyond it without an SFU.
+const MAX_CONSULT_PARTICIPANTS = 6;
 
 async function loadAppointmentForParticipant(appointmentId, user) {
   const appointment = await Appointment.findById(appointmentId);
@@ -18,6 +23,20 @@ async function loadAppointmentForParticipant(appointmentId, user) {
     throw new ApiError(403, "FORBIDDEN", "You are not part of this appointment");
   }
   return { appointment, isPatient, isDoctor };
+}
+
+// Falls back from the strict appointment-based check (treating doctor/patient/admin) to
+// checking session.participants directly — lets an invited specialist (who is neither
+// appointment.patient nor the DoctorProfile.user of appointment.doctor) reach
+// session-scoped routes once they've accepted an invite and been added as a participant.
+async function loadSessionForAnyParticipant(session, user) {
+  const appointmentId = session.appointment?._id || session.appointment;
+  try {
+    await loadAppointmentForParticipant(appointmentId, user);
+  } catch (err) {
+    const isParticipant = session.participants.some((p) => p.user.toString() === user.id);
+    if (!isParticipant) throw err;
+  }
 }
 
 const start = asyncHandler(async (req, res) => {
@@ -62,14 +81,14 @@ const iceServers = asyncHandler(async (req, res) => {
 const getOne = asyncHandler(async (req, res) => {
   const session = await ConsultationSession.findById(req.params.id).populate("appointment");
   if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
-  await loadAppointmentForParticipant(session.appointment._id, req.user);
+  await loadSessionForAnyParticipant(session, req.user);
   return ok(res, session);
 });
 
 const getChatHistory = asyncHandler(async (req, res) => {
-  const session = await ConsultationSession.findById(req.params.id).select("appointment chatTranscript");
+  const session = await ConsultationSession.findById(req.params.id).select("appointment participants chatTranscript");
   if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
-  await loadAppointmentForParticipant(session.appointment, req.user);
+  await loadSessionForAnyParticipant(session, req.user);
   return ok(res, session.chatTranscript);
 });
 
@@ -79,7 +98,7 @@ const shareFile = asyncHandler(async (req, res) => {
 
   const session = await ConsultationSession.findById(req.params.id);
   if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
-  await loadAppointmentForParticipant(session.appointment, req.user);
+  await loadSessionForAnyParticipant(session, req.user);
 
   session.sharedFiles.push({ uploadedBy: req.user.id, fileRef: fileId });
   await session.save();
@@ -90,7 +109,7 @@ const shareFile = asyncHandler(async (req, res) => {
 const end = asyncHandler(async (req, res) => {
   const session = await ConsultationSession.findById(req.params.id);
   if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
-  await loadAppointmentForParticipant(session.appointment, req.user);
+  await loadSessionForAnyParticipant(session, req.user);
 
   session.state = CONSULTATION_STATES.ENDED;
   session.endedAt = new Date();
@@ -103,4 +122,97 @@ const end = asyncHandler(async (req, res) => {
   return ok(res, session, "Consultation ended");
 });
 
-module.exports = { start, getOne, getChatHistory, shareFile, end, iceServers };
+// Treating-doctor-only: invites another verified doctor into an in-progress consultation
+// for a second opinion. The specialist doesn't join the room until they accept below —
+// this only creates the pending invite + notifies them.
+const invite = asyncHandler(async (req, res) => {
+  const { doctorProfileId } = req.body;
+  if (!doctorProfileId) throw new ApiError(400, "DOCTOR_REQUIRED", "doctorProfileId is required");
+
+  const session = await ConsultationSession.findById(req.params.id).populate("appointment");
+  if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
+  if (session.state === CONSULTATION_STATES.ENDED) {
+    throw new ApiError(400, "SESSION_ENDED", "Cannot invite into an ended session");
+  }
+
+  const { isDoctor } = await loadAppointmentForParticipant(session.appointment._id, req.user);
+  if (!isDoctor) throw new ApiError(403, "FORBIDDEN", "Only the treating doctor can invite another doctor");
+
+  if (session.participants.length + session.pendingInvites.length >= MAX_CONSULT_PARTICIPANTS) {
+    throw new ApiError(409, "SESSION_FULL", "This consultation has reached its participant limit");
+  }
+
+  const invitedDoctor = await DoctorProfile.findById(doctorProfileId).select("user");
+  if (!invitedDoctor) throw new ApiError(404, "NOT_FOUND", "Doctor not found");
+
+  const alreadyIn =
+    session.participants.some((p) => p.user.toString() === invitedDoctor.user.toString()) ||
+    session.pendingInvites.some((p) => p.user.toString() === invitedDoctor.user.toString());
+  if (alreadyIn) throw new ApiError(409, "ALREADY_INVITED", "This doctor is already part of this consultation");
+
+  session.pendingInvites.push({ user: invitedDoctor.user, invitedBy: req.user.id, invitedAt: new Date() });
+  await session.save();
+
+  await notify({
+    userId: invitedDoctor.user,
+    channel: NOTIFICATION_CHANNELS.PUSH,
+    type: "consult_invite",
+    title: "You're invited to a consultation",
+    body: "A doctor has invited you to join an ongoing consultation for a second opinion.",
+    data: { sessionId: session._id.toString() },
+  });
+
+  return ok(res, session, "Invite sent");
+});
+
+// Doctors this session has an open invite for — lets a client show a list/badge rather
+// than relying solely on catching a live push notification.
+const listMyInvites = asyncHandler(async (req, res) => {
+  const sessions = await ConsultationSession.find({
+    "pendingInvites.user": req.user.id,
+    state: { $ne: CONSULTATION_STATES.ENDED },
+  })
+    .select("appointment mode state pendingInvites")
+    .populate("appointment");
+  return ok(res, sessions);
+});
+
+const acceptInvite = asyncHandler(async (req, res) => {
+  const session = await ConsultationSession.findById(req.params.id);
+  if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
+
+  const inviteIndex = session.pendingInvites.findIndex((p) => p.user.toString() === req.user.id);
+  if (inviteIndex === -1) throw new ApiError(404, "NOT_FOUND", "No pending invite for you on this session");
+
+  session.pendingInvites.splice(inviteIndex, 1);
+  session.participants.push({ user: req.user.id, role: "specialist" });
+  await session.save();
+
+  return ok(res, session, "Joined consultation");
+});
+
+const declineInvite = asyncHandler(async (req, res) => {
+  const session = await ConsultationSession.findById(req.params.id);
+  if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
+
+  const inviteIndex = session.pendingInvites.findIndex((p) => p.user.toString() === req.user.id);
+  if (inviteIndex === -1) throw new ApiError(404, "NOT_FOUND", "No pending invite for you on this session");
+
+  session.pendingInvites.splice(inviteIndex, 1);
+  await session.save();
+
+  return ok(res, null, "Invite declined");
+});
+
+module.exports = {
+  start,
+  getOne,
+  getChatHistory,
+  shareFile,
+  end,
+  iceServers,
+  invite,
+  listMyInvites,
+  acceptInvite,
+  declineInvite,
+};

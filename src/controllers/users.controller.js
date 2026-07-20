@@ -27,4 +27,14 @@ const registerFcmToken = asyncHandler(async (req, res) => {
   return ok(res, null, "Token registered");
 });
 
-module.exports = { getMe, updateMe, registerFcmToken };
+// Called on logout so a shared/re-logged-in device stops receiving the previous
+// account's push notifications — without this, a device's FCM token stays registered to
+// whoever last logged in even after they sign out.
+const removeFcmToken = asyncHandler(async (req, res) => {
+  const { token } = req.body;
+  if (!token) throw new ApiError(400, "TOKEN_REQUIRED", "FCM token is required");
+  await User.findByIdAndUpdate(req.user.id, { $pull: { fcmTokens: token } });
+  return ok(res, null, "Token removed");
+});
+
+module.exports = { getMe, updateMe, registerFcmToken, removeFcmToken };

@@ -12,7 +12,7 @@ class NotificationProvider {
     throw new Error("sendPush not implemented");
   }
 
-  async sendWhatsapp(_to, _message) {
+  async sendWhatsapp(_to, _message, _mediaUrl) {
     throw new Error("sendWhatsapp not implemented");
   }
 }

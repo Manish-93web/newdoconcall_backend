@@ -194,7 +194,7 @@ const NOTIFICATION_TEMPLATES = [
   { key: "instant_consult_matched", title: "Instant consult request", body: "A patient wants to speak with you now.", channels: ["in_app"] },
   { key: "follow_up_window_open", title: "Free follow-up available", body: "You can book a free follow-up with this doctor within the next {{followUpDays}} days.", channels: ["push"] },
   { key: "prescription_issued_push", title: "New e-prescription", body: "Dr. {{doctorName}} issued you a prescription", channels: ["push"] },
-  { key: "prescription_issued_whatsapp", title: "New e-prescription", body: "Dr. {{doctorName}} issued your prescription on {{date}}. Open the DoconCall app to view and download it.", channels: ["whatsapp"] },
+  { key: "prescription_issued_whatsapp", title: "New e-prescription", body: "Dr. {{doctorName}} issued your prescription on {{date}}. {{summary}} {{followUp}}", channels: ["whatsapp"] },
   { key: "payment_succeeded", title: "Payment successful", body: "Your appointment is confirmed.", channels: ["push"] },
   { key: "subscription_activated", title: "Subscription activated", body: "Your {{planName}} is now active — {{sessionsIncluded}} session(s) available.", channels: ["push"] },
   { key: "diagnostic_report_ready", title: "Your report is ready", body: "Your diagnostic test report is now available to download", channels: ["push"] },

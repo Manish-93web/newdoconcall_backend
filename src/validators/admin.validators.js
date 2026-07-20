@@ -1,5 +1,9 @@
 const Joi = require("joi");
+const { ALL_ADMIN_CAPABILITIES } = require("../config/constants");
 
+// Omit adminCapabilities entirely to create a full admin (unrestricted, matching every
+// admin account that existed before this permission model) — pass an array (even empty)
+// to create a capability-scoped sub-admin instead. See rbac.middleware.js's requireCapability().
 const createAdminSchema = Joi.object({
   name: Joi.string().min(2).max(100).required(),
   email: Joi.string().email().optional(),
@@ -7,9 +11,14 @@ const createAdminSchema = Joi.object({
     .pattern(/^[0-9+\-\s]{7,15}$/)
     .optional(),
   password: Joi.string().min(6).required(),
+  adminCapabilities: Joi.array().items(Joi.string().valid(...ALL_ADMIN_CAPABILITIES)).optional(),
 })
   .or("email", "phone")
   .required();
+
+const updateAdminCapabilitiesSchema = Joi.object({
+  adminCapabilities: Joi.array().items(Joi.string().valid(...ALL_ADMIN_CAPABILITIES)).required(),
+});
 
 const broadcastNotificationSchema = Joi.object({
   title: Joi.string().min(1).max(150).required(),
@@ -31,6 +40,7 @@ const updateNotificationTemplateSchema = Joi.object({
 
 module.exports = {
   createAdminSchema,
+  updateAdminCapabilitiesSchema,
   broadcastNotificationSchema,
   updateNotificationTemplateSchema,
 };

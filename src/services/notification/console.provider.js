@@ -19,8 +19,8 @@ class ConsoleNotificationProvider extends NotificationProvider {
     return { delivered: true, provider: "console" };
   }
 
-  async sendWhatsapp(to, message) {
-    log.info(`WHATSAPP -> ${to}: ${message}`);
+  async sendWhatsapp(to, message, mediaUrl) {
+    log.info(`WHATSAPP -> ${to}: ${message}${mediaUrl ? ` [media: ${mediaUrl}]` : ""}`);
     return { delivered: true, provider: "console" };
   }
 }

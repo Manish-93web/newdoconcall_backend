@@ -24,5 +24,7 @@ router.post(
   ctrl.upload
 );
 router.get("/files/:fileId", authenticate(), ctrl.stream);
+// Unauthenticated by design — see files.controller.js's streamSigned for why.
+router.get("/files/:fileId/signed", ctrl.streamSigned);
 
 module.exports = router;

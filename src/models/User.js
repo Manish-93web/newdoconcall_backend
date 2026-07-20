@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { ALL_ROLES } = require("../config/constants");
+const { ALL_ROLES, ALL_ADMIN_CAPABILITIES } = require("../config/constants");
 
 const addressSchema = new mongoose.Schema(
   {
@@ -30,7 +30,7 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, select: false },
     authProviders: [
       {
-        provider: { type: String, enum: ["google"] },
+        provider: { type: String, enum: ["google", "apple"] },
         providerId: String,
       },
     ],
@@ -55,6 +55,11 @@ const userSchema = new mongoose.Schema(
     },
     fcmTokens: [String],
     lastLoginAt: Date,
+    // platform_admin only. undefined/unset = a full admin (the classic, pre-RBAC account
+    // shape — every existing admin keeps unrestricted access). Once explicitly set (even
+    // to an empty array) via the sub-admin creation/edit flow, this admin is scoped to
+    // exactly these capabilities — see rbac.middleware.js's requireCapability().
+    adminCapabilities: { type: [String], enum: ALL_ADMIN_CAPABILITIES, default: undefined },
   },
   { timestamps: true }
 );

@@ -23,6 +23,7 @@ async function predictRisk({ userId, forFamilyMemberId }) {
   } else {
     const user = await User.findById(userId);
     age = ageFromDob(user?.dob);
+    chronicConditions = user?.medicalHistory?.chronicConditions || [];
   }
 
   const reasons = [];

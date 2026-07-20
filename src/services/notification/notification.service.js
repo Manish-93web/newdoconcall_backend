@@ -26,7 +26,7 @@ const provider = resolveProvider();
  * Single call site the rest of the app uses to notify a user. Persists a Notification
  * document regardless of provider outcome, then attempts delivery over the requested channel.
  */
-async function notify({ userId, channel, type, title, body, data }) {
+async function notify({ userId, channel, type, title, body, data, mediaUrl }) {
   // If an active admin-editable template exists for this type, it wins — interpolated
   // against `data`. Otherwise falls back to the title/body the call site passed, so a
   // missing/misconfigured template can never break a notification, only fail to customize it.
@@ -53,7 +53,7 @@ async function notify({ userId, channel, type, title, body, data }) {
     } else if (channel === NOTIFICATION_CHANNELS.EMAIL && user.email) {
       await provider.sendEmail(user.email, resolvedTitle, resolvedBody);
     } else if (channel === NOTIFICATION_CHANNELS.WHATSAPP && user.phone) {
-      await provider.sendWhatsapp(user.phone, `${resolvedTitle}: ${resolvedBody}`);
+      await provider.sendWhatsapp(user.phone, `${resolvedTitle}: ${resolvedBody}`, mediaUrl);
     } else if (channel === NOTIFICATION_CHANNELS.PUSH) {
       for (const token of user.fcmTokens || []) {
         await provider.sendPush(token, resolvedTitle, resolvedBody, data);
@@ -71,11 +71,18 @@ async function notify({ userId, channel, type, title, body, data }) {
   return notification;
 }
 
-async function sendOtp(identifier, otpCode, purpose) {
+async function sendOtp(identifier, otpCode, purpose, platform) {
   const isEmail = identifier.includes("@");
   if (isEmail) {
     const message = `Your DoconCall ${purpose} OTP is ${otpCode}. Valid for 10 minutes.`;
     await provider.sendEmail(identifier, "Your DoconCall OTP", message);
+  } else if (platform === "web" && env.webOtpDomain) {
+    // The WebOTP API (useWebOtpAutoRead on the web frontend) requires the domain-bound
+    // code to be the message's last line in this exact "@domain #code" shape — mutually
+    // exclusive with the Android SMS Retriever hash suffix below, so pick one per request
+    // based on which client (web vs. mobile) asked for the OTP.
+    const message = `Your DoconCall ${purpose} OTP is ${otpCode}. Valid for 10 minutes.\n@${env.webOtpDomain} #${otpCode}`;
+    await provider.sendSms(identifier, message);
   } else {
     // The Android SMS Retriever API (react-native-otp-verify on the mobile app) requires
     // the message to start with "<#>" and end with the app's signed hash on its own —

@@ -15,6 +15,7 @@ const createPrescriptionSchema = Joi.object({
     .min(1)
     .required(),
   diagnosis: Joi.array().items(Joi.string()).default([]),
+  labTests: Joi.array().items(Joi.string()).default([]),
   advice: Joi.string().allow(""),
   followUpInstructions: Joi.string().allow(""),
 });

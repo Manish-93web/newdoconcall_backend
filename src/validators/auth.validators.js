@@ -20,6 +20,9 @@ const registerSchema = Joi.object({
 const otpRequestSchema = Joi.object({
   identifier: identifierField,
   purpose: Joi.string().valid("signup", "login", "reset").default("login"),
+  // Which client is asking — used only to pick an SMS auto-read format (WebOTP vs. Android
+  // SMS Retriever); omit from the mobile app to keep its existing behavior unchanged.
+  platform: Joi.string().valid("web", "mobile").optional(),
 });
 
 const otpVerifySchema = Joi.object({
@@ -51,6 +54,16 @@ const googleLoginSchema = Joi.object({
   role: Joi.string().valid(ROLES.PATIENT, ROLES.DOCTOR).optional(),
 });
 
+const appleLoginSchema = Joi.object({
+  idToken: Joi.string().required(),
+  role: Joi.string().valid(ROLES.PATIENT, ROLES.DOCTOR).optional(),
+  // Apple only ever includes this on the client's very first authorization.
+  fullName: Joi.object({
+    givenName: Joi.string().allow("").optional(),
+    familyName: Joi.string().allow("").optional(),
+  }).optional(),
+});
+
 module.exports = {
   registerSchema,
   otpRequestSchema,
@@ -59,4 +72,5 @@ module.exports = {
   refreshSchema,
   resetPasswordSchema,
   googleLoginSchema,
+  appleLoginSchema,
 };

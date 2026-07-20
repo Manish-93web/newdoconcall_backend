@@ -28,6 +28,33 @@ const create = asyncHandler(async (req, res) => {
     );
   }
 
+  // Out-of-stock items block the order rather than silently overselling. Spec: "System
+  // may also suggest alternative brands if medicine is unavailable" — surfaced alongside
+  // the rejection (same composition-match fallback as medicines.controller.js's getAlternatives).
+  const insufficientStock = items
+    .map(({ medicineId, quantity }) => ({
+      medicine: medicines.find((m) => m._id.toString() === medicineId),
+      quantity,
+    }))
+    .filter(({ medicine, quantity }) => medicine.stock < quantity);
+
+  if (insufficientStock.length) {
+    const unavailable = await Promise.all(
+      insufficientStock.map(async ({ medicine }) => {
+        let alternatives = await Medicine.find({ _id: { $in: medicine.alternatives }, stock: { $gt: 0 } });
+        if (!alternatives.length && medicine.composition) {
+          alternatives = await Medicine.find({
+            composition: medicine.composition,
+            _id: { $ne: medicine._id },
+            stock: { $gt: 0 },
+          }).limit(5);
+        }
+        return { medicineId: medicine._id, name: medicine.name, availableStock: medicine.stock, alternatives };
+      })
+    );
+    throw new ApiError(409, "OUT_OF_STOCK", "One or more medicines are out of stock", { unavailable });
+  }
+
   const orderItems = items.map(({ medicineId, quantity }) => {
     const medicine = medicines.find((m) => m._id.toString() === medicineId);
     return { medicine: medicine._id, quantity, unitPrice: medicine.price.sellingPrice };
@@ -60,6 +87,12 @@ const create = asyncHandler(async (req, res) => {
           }
         : { enabled: false },
   });
+
+  // Decrement stock now that the order is confirmed placed, so the availability check
+  // above reflects real depletion over time instead of a static seeded number.
+  await Promise.all(
+    orderItems.map(({ medicine, quantity }) => Medicine.updateOne({ _id: medicine }, { $inc: { stock: -quantity } }))
+  );
 
   return created(res, order, "Order placed");
 });

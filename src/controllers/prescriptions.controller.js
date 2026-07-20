@@ -6,13 +6,14 @@ const UploadedFile = require("../models/UploadedFile");
 const User = require("../models/User");
 const { generatePrescriptionPdf } = require("../services/pdf/prescriptionPdf.service");
 const { notify } = require("../services/notification/notification.service");
+const { createSignedFileUrl } = require("../services/files/signedUrl.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const asyncHandler = require("../utils/asyncHandler");
 const { NOTIFICATION_CHANNELS, ROLES } = require("../config/constants");
 
 const create = asyncHandler(async (req, res) => {
-  const { appointmentId, consultationSessionId, medicines, diagnosis, advice, followUpInstructions } = req.body;
+  const { appointmentId, consultationSessionId, medicines, diagnosis, labTests, advice, followUpInstructions } = req.body;
 
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) throw new ApiError(404, "NOT_FOUND", "Appointment not found");
@@ -30,6 +31,7 @@ const create = asyncHandler(async (req, res) => {
     forFamilyMember: appointment.forFamilyMember,
     medicines,
     diagnosis,
+    labTests,
     advice,
     followUpInstructions,
   });
@@ -80,10 +82,25 @@ const create = asyncHandler(async (req, res) => {
     data: { prescriptionId: prescription._id, doctorName: doctorUser.name },
   });
 
-  // Multi-channel delivery per spec 5.10 — text summary only (doctor name, date,
-  // prompt to open the app), not the PDF binary itself: attaching the PDF via WhatsApp
-  // media would require a public, unauthenticated file URL, which would undercut the
-  // authenticated-file-access model the rest of the app relies on.
+  // Multi-channel delivery per spec 5.10 — WhatsApp gets the PDF (via a signed,
+  // short-lived, unauthenticated file URL; Twilio fetches mediaUrl itself and can't carry
+  // our auth headers, so this is the one deliberate escape hatch from the normal
+  // authenticated-file-access model — see files.controller.js's streamSigned +
+  // signedUrl.service.js) PLUS a consultation summary and follow-up reminder in the
+  // message body, alongside doctor name and session date.
+  const consultationSummary =
+    [
+      prescription.diagnosis?.length ? `Diagnosis: ${prescription.diagnosis.join(", ")}` : null,
+      prescription.labTests?.length ? `Recommended tests: ${prescription.labTests.join(", ")}` : null,
+      prescription.advice ? `Advice: ${prescription.advice}` : null,
+    ]
+      .filter(Boolean)
+      .join(". ") || "See the attached prescription for details.";
+
+  const followUpReminder = prescription.followUpInstructions
+    ? `Follow-up: ${prescription.followUpInstructions}`
+    : "You're eligible for a free follow-up with this doctor within the follow-up window — just book it in the app.";
+
   // Split into a separate template key from the push notification above (rather than one
   // shared "prescription_issued" key) since the two channels have different wording —
   // keeping them separate guarantees the admin-template refactor can't silently merge them.
@@ -92,8 +109,15 @@ const create = asyncHandler(async (req, res) => {
     channel: NOTIFICATION_CHANNELS.WHATSAPP,
     type: "prescription_issued_whatsapp",
     title: "New e-prescription",
-    body: `Dr. ${doctorUser.name} issued your prescription on ${new Date().toLocaleDateString()}. Open the DoconCall app to view and download it.`,
-    data: { prescriptionId: prescription._id, doctorName: doctorUser.name, date: new Date().toLocaleDateString() },
+    body: `Dr. ${doctorUser.name} issued your prescription on ${new Date().toLocaleDateString()}. ${consultationSummary} ${followUpReminder}`,
+    data: {
+      prescriptionId: prescription._id,
+      doctorName: doctorUser.name,
+      date: new Date().toLocaleDateString(),
+      summary: consultationSummary,
+      followUp: followUpReminder,
+    },
+    mediaUrl: createSignedFileUrl(pdfFile._id),
   });
 
   return created(res, prescription, "Prescription issued");

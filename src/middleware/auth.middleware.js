@@ -16,7 +16,7 @@ function authenticate(options = {}) {
 
     try {
       const payload = verifyAccessToken(token);
-      const user = await User.findById(payload.sub).select("role status name email phone");
+      const user = await User.findById(payload.sub).select("role status name email phone adminCapabilities");
       if (!user) throw new Error("User not found");
       if (user.status === "suspended") {
         return next(new ApiError(403, "ACCOUNT_SUSPENDED", "This account has been suspended"));

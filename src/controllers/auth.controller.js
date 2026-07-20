@@ -6,6 +6,7 @@ const { issueTokenPair, verifyRefreshToken, signAccessToken, signRefreshToken } 
 const { requestOtp, verifyOtp } = require("../services/auth/otp.service");
 const { revokeToken, isTokenRevoked } = require("../services/auth/tokenBlacklist.service");
 const { verifyGoogleIdToken } = require("../services/auth/googleOAuth.service");
+const { verifyAppleIdToken } = require("../services/auth/appleOAuth.service");
 const { provisionFreemiumSubscription } = require("../services/subscription/subscription.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const asyncHandler = require("../utils/asyncHandler");
@@ -25,6 +26,10 @@ function toPublicUser(user) {
     isEmailVerified: user.isEmailVerified,
     isPhoneVerified: user.isPhoneVerified,
     healthId: user.healthId,
+    // undefined = full admin; an array (even empty) = capability-scoped sub-admin. Lets
+    // the admin web app gate its own nav client-side — see rbac.middleware.js for the
+    // server-side enforcement this mirrors.
+    adminCapabilities: user.adminCapabilities,
   };
 }
 
@@ -67,7 +72,7 @@ const register = asyncHandler(async (req, res) => {
 });
 
 const requestOtpHandler = asyncHandler(async (req, res) => {
-  const { identifier, purpose } = req.body;
+  const { identifier, purpose, platform } = req.body;
 
   if (purpose === "login" || purpose === "reset") {
     const query = isEmail(identifier) ? { email: identifier } : { phone: identifier };
@@ -75,7 +80,7 @@ const requestOtpHandler = asyncHandler(async (req, res) => {
     if (!user) throw new ApiError(404, "USER_NOT_FOUND", "No account found for this identifier");
   }
 
-  const result = await requestOtp(identifier, purpose);
+  const result = await requestOtp(identifier, purpose, platform);
   return ok(res, result, "OTP sent");
 });
 
@@ -228,6 +233,52 @@ const googleLogin = asyncHandler(async (req, res) => {
   return ok(res, { user: toPublicUser(user), ...tokens }, "Logged in with Google");
 });
 
+const appleLogin = asyncHandler(async (req, res) => {
+  if (!env.appleOAuth.clientId && !env.appleOAuth.bundleId) {
+    throw new ApiError(501, "NOT_CONFIGURED", "Sign in with Apple is not configured on this server yet");
+  }
+
+  const { idToken, role, fullName } = req.body;
+  let profile;
+  try {
+    profile = await verifyAppleIdToken(idToken);
+  } catch {
+    throw new ApiError(401, "INVALID_APPLE_TOKEN", "Could not verify Apple ID token");
+  }
+
+  let user = await User.findOne({
+    authProviders: { $elemMatch: { provider: "apple", providerId: profile.providerId } },
+  });
+
+  if (!user && profile.email) {
+    user = await User.findOne({ email: profile.email });
+    if (user) user.authProviders.push({ provider: "apple", providerId: profile.providerId });
+  }
+
+  let isNewUser = false;
+  if (!user) {
+    // Apple only ever sends the user's name on their very first authorization, via a
+    // separate `user` object the client captures itself (not part of the token) — the
+    // client forwards it here as `fullName` so we're not stuck with "New User" forever.
+    const name = [fullName?.givenName, fullName?.familyName].filter(Boolean).join(" ") || "New User";
+    user = new User({
+      name,
+      email: profile.email,
+      role: role || ROLES.PATIENT,
+      isEmailVerified: profile.emailVerified,
+      authProviders: [{ provider: "apple", providerId: profile.providerId }],
+    });
+    isNewUser = true;
+  }
+
+  user.lastLoginAt = new Date();
+  await user.save();
+  if (isNewUser) await grantFreemiumIfPatient(user);
+
+  const tokens = issueTokenPair(user);
+  return ok(res, { user: toPublicUser(user), ...tokens }, "Logged in with Apple");
+});
+
 module.exports = {
   register,
   requestOtpHandler,
@@ -237,4 +288,5 @@ module.exports = {
   refreshToken,
   logout,
   googleLogin,
+  appleLogin,
 };

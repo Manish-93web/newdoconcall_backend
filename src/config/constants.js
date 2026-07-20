@@ -64,6 +64,21 @@ const VERIFICATION_STATUSES = Object.freeze({
   REJECTED: "rejected",
 });
 
+// Granular sub-admin permissions — see rbac.middleware.js's requireCapability() and
+// User.js's adminCapabilities field for how these gate individual admin routes.
+const ADMIN_CAPABILITIES = Object.freeze({
+  MANAGE_USERS: "manage_users",
+  MANAGE_VERIFICATION: "manage_verification",
+  VIEW_FINANCIALS: "view_financials",
+  MANAGE_NOTIFICATIONS: "manage_notifications",
+  MANAGE_AFFILIATES: "manage_affiliates",
+  VIEW_AUDIT_LOGS: "view_audit_logs",
+  MANAGE_PLATFORM_SETTINGS: "manage_platform_settings",
+  MONITOR_CONSULTATIONS: "monitor_consultations",
+});
+
+const ALL_ADMIN_CAPABILITIES = Object.values(ADMIN_CAPABILITIES);
+
 module.exports = {
   ROLES,
   ALL_ROLES,
@@ -74,4 +89,6 @@ module.exports = {
   PAYMENT_STATUSES,
   NOTIFICATION_CHANNELS,
   VERIFICATION_STATUSES,
+  ADMIN_CAPABILITIES,
+  ALL_ADMIN_CAPABILITIES,
 };

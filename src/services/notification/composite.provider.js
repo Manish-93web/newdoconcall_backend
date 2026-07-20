@@ -41,8 +41,10 @@ class CompositeNotificationProvider extends NotificationProvider {
       : this.consoleFallback.sendPush(fcmToken, title, body, data);
   }
 
-  async sendWhatsapp(to, message) {
-    return this.whatsapp ? this.whatsapp.sendWhatsapp(to, message) : this.consoleFallback.sendWhatsapp(to, message);
+  async sendWhatsapp(to, message, mediaUrl) {
+    return this.whatsapp
+      ? this.whatsapp.sendWhatsapp(to, message, mediaUrl)
+      : this.consoleFallback.sendWhatsapp(to, message, mediaUrl);
   }
 }
 

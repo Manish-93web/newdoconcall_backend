@@ -37,6 +37,12 @@ function generatePrescriptionPdf({ prescription, doctorName, patientName, regist
     });
     doc.moveDown();
 
+    if (prescription.labTests?.length) {
+      doc.fontSize(13).text("Recommended Lab Tests", { underline: true });
+      doc.fontSize(11).text(prescription.labTests.join(", "));
+      doc.moveDown();
+    }
+
     if (prescription.advice) {
       doc.fontSize(13).text("Advice", { underline: true });
       doc.fontSize(11).text(prescription.advice);

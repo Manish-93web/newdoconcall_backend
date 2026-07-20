@@ -1,6 +1,7 @@
 const DoctorProfile = require("../models/DoctorProfile");
 const Appointment = require("../models/Appointment");
 const { geocodeAddress } = require("../services/maps/googleMaps.service");
+const { getEstimatedWaitMinutes } = require("../services/consultation/doctorAvailability.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const { sanitizeText } = require("../utils/sanitize");
@@ -23,6 +24,7 @@ const search = asyncHandler(async (req, res) => {
     minExperience,
     maxExperience,
     clinicId,
+    availableNow,
     name,
     page,
     limit,
@@ -33,6 +35,7 @@ const search = asyncHandler(async (req, res) => {
   if (specialization) query.specializations = specialization;
   if (minRating) query.ratingAvg = { $gte: Number(minRating) };
   if (clinicId) query.clinics = clinicId;
+  if (availableNow === "true") query["liveStatus.state"] = "available";
   if (minFee || maxFee) {
     query["consultationFee.inClinic"] = {};
     if (minFee) query["consultationFee.inClinic"].$gte = Number(minFee);
@@ -71,6 +74,17 @@ const search = asyncHandler(async (req, res) => {
       .lean(),
     DoctorProfile.countDocuments(query),
   ]);
+
+  // Estimated wait, for the "available now" doctors who happen to be mid-call right now —
+  // a clearly-labeled estimate (see doctorAvailability.service.js), not a hard promise.
+  // Available-and-idle doctors are simply absent from this map, i.e. a 0-minute wait.
+  const availableIds = doctors.filter((d) => d.liveStatus?.state === "available").map((d) => d._id);
+  const waitByDoctor = await getEstimatedWaitMinutes(availableIds);
+  for (const doctor of doctors) {
+    if (doctor.liveStatus?.state === "available") {
+      doctor.estimatedWaitMinutes = waitByDoctor.get(doctor._id.toString()) ?? 0;
+    }
+  }
 
   return ok(res, doctors, "OK", buildMeta({ page: Number(page), limit: Number(limit), total }));
 });

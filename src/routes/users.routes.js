@@ -6,5 +6,6 @@ router.use(authenticate());
 router.get("/me", ctrl.getMe);
 router.patch("/me", ctrl.updateMe);
 router.post("/me/fcm-token", ctrl.registerFcmToken);
+router.delete("/me/fcm-token", ctrl.removeFcmToken);
 
 module.exports = router;

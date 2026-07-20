@@ -22,6 +22,11 @@ async function loadSessionForParticipant(sessionId, userId) {
 function registerSignalingHandlers(io, socket) {
   socket.data.consultSessions = new Set();
 
+  // Full-mesh join: the newcomer creates one RTCPeerConnection + offer per peer already
+  // in the room (returned here as `peers`); each existing peer just reacts to
+  // `consult:peer-joined` by creating an empty PC for that one id and waiting for an
+  // offer targeted at them (see part 3 of the useConsultCall.ts rework). This one-sided
+  // "newcomer always offers" convention avoids two peers racing to offer each other.
   socket.on("consult:join", async ({ sessionId }, ack) => {
     try {
       const { session, participant } = await loadSessionForParticipant(sessionId, socket.user.id);
@@ -30,8 +35,6 @@ function registerSignalingHandlers(io, socket) {
       }
 
       const room = roomName(session.sessionRoomId);
-      const otherParticipant = session.participants.find((p) => p.user.toString() !== socket.user.id);
-
       const roomSockets = await io.in(room).fetchSockets();
       const isFirstToJoin = roomSockets.length === 0;
 
@@ -53,18 +56,24 @@ function registerSignalingHandlers(io, socket) {
       socket.data.consultSessions.add(sessionId);
 
       if (isFirstToJoin) {
-        if (otherParticipant?.user) {
-          io.to(`user:${otherParticipant.user}`).emit("consult:incoming-call", {
+        // Only the originally-booked other side (patient/doctor) gets rung — a specialist
+        // invited later joins straight into an already-connected room (the `else` branch),
+        // never re-triggering a ring.
+        const originalOther = session.participants.find(
+          (p) => p.role !== "specialist" && p.user.toString() !== socket.user.id
+        );
+        if (originalOther?.user) {
+          io.to(`user:${originalOther.user}`).emit("consult:incoming-call", {
             sessionId: session._id,
             fromUser: socket.user.id,
           });
         }
-        ack?.({ ok: true, state: session.state, shouldCreateOffer: false });
+        ack?.({ ok: true, state: session.state, peers: [] });
       } else {
+        const peers = roomSockets.map((s) => ({ peerSocketId: s.id, userId: s.user.id }));
         socket.to(room).emit("consult:peer-joined", { peerSocketId: socket.id, userId: socket.user.id });
         io.to(room).emit("consult:state-changed", { sessionId: session._id, state: session.state });
-        // The second-to-join peer initiates the SDP offer to the peer already waiting in the room.
-        ack?.({ ok: true, state: session.state, shouldCreateOffer: true });
+        ack?.({ ok: true, state: session.state, peers });
       }
     } catch (err) {
       log.error("consult:join failed", err.message);
@@ -72,25 +81,31 @@ function registerSignalingHandlers(io, socket) {
     }
   });
 
-  socket.on("consult:offer", async ({ sessionId, sdp }) => {
+  // Point-to-point SDP/ICE relay, one specific peer at a time — required once a room can
+  // hold 3+ sockets (a room-wide broadcast would deliver an offer meant for one peer to
+  // every peer, who'd each answer against the wrong remote description). `targetPeerId`'s
+  // room membership is checked before relaying so a client can't use it to inject a fake
+  // offer into an arbitrary unrelated socket outside this session.
+  async function relayToPeer(sessionId, targetPeerId, event, payload) {
     const session = await ConsultationSession.findById(sessionId).select("sessionRoomId");
     if (!session) return;
-    socket.to(roomName(session.sessionRoomId)).emit("consult:offer", { sdp, fromSocketId: socket.id });
-  });
+    const room = roomName(session.sessionRoomId);
+    const targetSocket = io.sockets.sockets.get(targetPeerId);
+    if (!targetSocket || !targetSocket.rooms.has(room)) return;
+    io.to(targetPeerId).emit(event, { ...payload, fromSocketId: socket.id });
+  }
 
-  socket.on("consult:answer", async ({ sessionId, sdp }) => {
-    const session = await ConsultationSession.findById(sessionId).select("sessionRoomId");
-    if (!session) return;
-    socket.to(roomName(session.sessionRoomId)).emit("consult:answer", { sdp, fromSocketId: socket.id });
-  });
+  socket.on("consult:offer", ({ sessionId, sdp, targetPeerId }) =>
+    relayToPeer(sessionId, targetPeerId, "consult:offer", { sdp })
+  );
 
-  socket.on("consult:ice-candidate", async ({ sessionId, candidate }) => {
-    const session = await ConsultationSession.findById(sessionId).select("sessionRoomId");
-    if (!session) return;
-    socket
-      .to(roomName(session.sessionRoomId))
-      .emit("consult:ice-candidate", { candidate, fromSocketId: socket.id });
-  });
+  socket.on("consult:answer", ({ sessionId, sdp, targetPeerId }) =>
+    relayToPeer(sessionId, targetPeerId, "consult:answer", { sdp })
+  );
+
+  socket.on("consult:ice-candidate", ({ sessionId, candidate, targetPeerId }) =>
+    relayToPeer(sessionId, targetPeerId, "consult:ice-candidate", { candidate })
+  );
 
   socket.on("consult:media-state", async ({ sessionId, kind, enabled }) => {
     const session = await ConsultationSession.findById(sessionId).select("sessionRoomId");

@@ -1,23 +1,18 @@
 const Appointment = require("../models/Appointment");
 const DoctorProfile = require("../models/DoctorProfile");
-const ConsultationSession = require("../models/ConsultationSession");
 const PatientSubscription = require("../models/PatientSubscription");
 const User = require("../models/User");
 const HealthRecord = require("../models/HealthRecord");
 const Prescription = require("../models/Prescription");
+const FamilyMember = require("../models/FamilyMember");
 const PlatformSetting = require("../models/PlatformSetting");
 const { computeSplit } = require("../services/commission/commission.service");
 const { notify } = require("../services/notification/notification.service");
-const { RING_TIMEOUT_MS } = require("../jobs/missedCallTimeout.job");
+const { getBusyDoctorIds } = require("../services/consultation/doctorAvailability.service");
 const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const asyncHandler = require("../utils/asyncHandler");
-const {
-  APPOINTMENT_STATUSES,
-  NOTIFICATION_CHANNELS,
-  ROLES,
-  CONSULTATION_STATES,
-} = require("../config/constants");
+const { APPOINTMENT_STATUSES, NOTIFICATION_CHANNELS, ROLES } = require("../config/constants");
 
 const POPULATE = [
   { path: "doctor", populate: { path: "user", select: "name" } },
@@ -101,28 +96,6 @@ const book = asyncHandler(async (req, res) => {
 
   return created(res, appointment, "Appointment booked");
 });
-
-// Computed live from ConsultationSession on every call, not a separately-stored "busy"
-// flag that could get stuck out of sync. Shared by the auto-match path below and by
-// bookInstant's explicit-doctorId path (a patient picking a specific doctor off the list).
-async function getBusyDoctorIds(candidateIds) {
-  // A "ringing" session older than the ring-timeout window should already have flipped to
-  // "missed" (see missedCallTimeout.job.js) — excluding stale ones here is a safety net
-  // for the gap between a stuck session existing and the next restart's startup sweep
-  // catching it, so one orphaned session can't pin a doctor as busy indefinitely.
-  const ringingCutoff = new Date(Date.now() - RING_TIMEOUT_MS);
-  const activeSessions = await ConsultationSession.find({
-    $or: [
-      { state: { $in: [CONSULTATION_STATES.CONNECTED, CONSULTATION_STATES.ON_HOLD] } },
-      { state: CONSULTATION_STATES.RINGING, createdAt: { $gte: ringingCutoff } },
-    ],
-  }).select("appointment");
-  const activeAppointments = await Appointment.find({
-    _id: { $in: activeSessions.map((s) => s.appointment) },
-    ...(candidateIds ? { doctor: { $in: candidateIds } } : {}),
-  }).select("doctor");
-  return new Set(activeAppointments.map((a) => a.doctor.toString()));
-}
 
 // Ranks doctors for the "Speak to Doctor Now" instant-match flow: (1) must be manually
 // toggled available and not currently in an active call, (2) prior-treating-doctor for
@@ -411,20 +384,41 @@ const patientSnapshot = asyncHandler(async (req, res) => {
   const { isDoctor, isAdmin } = await assertParticipant(appointment, req.user);
   if (!isDoctor && !isAdmin) throw new ApiError(403, "FORBIDDEN", "Only the treating doctor can view this");
 
-  const [patient, recentHealthRecords, recentPrescriptions] = await Promise.all([
+  const [accountHolder, recentHealthRecords, recentPrescriptions, familyMember] = await Promise.all([
     User.findById(appointment.patient).select("name healthId medicalHistory"),
-    HealthRecord.find({ owner: appointment.patient }).sort({ recordDate: -1 }).limit(10),
+    // Scoped to forFamilyMember too (null matches records logged for the account holder
+    // themself) — otherwise a consult booked for a family member would surface the
+    // account holder's own records instead of the person actually being treated.
+    HealthRecord.find({ owner: appointment.patient, forFamilyMember: appointment.forFamilyMember || null })
+      .sort({ recordDate: -1 })
+      .limit(10),
     // appointment.doctor is already this appointment's DoctorProfile id — scoping
     // prescriptions to it (not just patient) means the doctor only sees prescriptions
     // they themselves issued, not every doctor's history for this patient.
-    Prescription.find({ patient: appointment.patient, doctor: appointment.doctor }).sort({ createdAt: -1 }).limit(10),
+    Prescription.find({
+      patient: appointment.patient,
+      doctor: appointment.doctor,
+      forFamilyMember: appointment.forFamilyMember || null,
+    })
+      .sort({ createdAt: -1 })
+      .limit(10),
+    appointment.forFamilyMember ? FamilyMember.findById(appointment.forFamilyMember) : null,
   ]);
-  if (!patient) throw new ApiError(404, "NOT_FOUND", "Patient not found");
+  if (!accountHolder) throw new ApiError(404, "NOT_FOUND", "Patient not found");
 
+  // When booked for a family member, the doctor is treating THAT person — show their own
+  // name and health summary, not the account holder's. The Health ID stays the account
+  // holder's regardless (it identifies the subscription/account, not an individual family member).
   return ok(res, {
-    name: patient.name,
-    healthId: patient.healthId || null,
-    medicalHistory: patient.medicalHistory || null,
+    name: familyMember?.name || accountHolder.name,
+    healthId: accountHolder.healthId || null,
+    medicalHistory: familyMember
+      ? {
+          bloodGroup: familyMember.healthSummary?.bloodGroup || null,
+          allergies: familyMember.healthSummary?.allergies || [],
+          chronicConditions: familyMember.healthSummary?.chronicConditions || [],
+        }
+      : accountHolder.medicalHistory || null,
     recentHealthRecords,
     recentPrescriptions,
   });

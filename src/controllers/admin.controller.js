@@ -13,7 +13,7 @@ const { ok, created, ApiError } = require("../utils/apiResponse");
 const { parsePagination, buildMeta } = require("../utils/pagination");
 const asyncHandler = require("../utils/asyncHandler");
 const { recordAuditLog } = require("../utils/auditLog");
-const { PAYMENT_STATUSES, ROLES, CONSULTATION_STATES } = require("../config/constants");
+const { PAYMENT_STATUSES, ROLES, CONSULTATION_STATES, ALL_ADMIN_CAPABILITIES } = require("../config/constants");
 
 // --- Users ---
 
@@ -33,23 +33,48 @@ const listUsers = asyncHandler(async (req, res) => {
   return ok(res, users, "OK", buildMeta({ page: Number(page), limit: Number(limit), total }));
 });
 
-// Every platform_admin has identical, full access — this creates another account with the
-// same role, not a scoped-down "sub admin" tier (no permissions model exists to scope with).
+// Omit adminCapabilities to create a full admin (identical, unrestricted access — the
+// classic account shape); pass an array to create a capability-scoped sub-admin instead.
+// See rbac.middleware.js's requireCapability().
 const createAdmin = asyncHandler(async (req, res) => {
-  const { name, email, phone, password } = req.body;
+  const { name, email, phone, password, adminCapabilities } = req.body;
 
   const orConditions = [email && { email }, phone && { phone }].filter(Boolean);
   const existing = await User.findOne({ $or: orConditions });
   if (existing) throw new ApiError(409, "USER_EXISTS", "An account with this email/phone already exists");
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const admin = await User.create({ name, email, phone, passwordHash, role: ROLES.PLATFORM_ADMIN });
+  const admin = await User.create({
+    name,
+    email,
+    phone,
+    passwordHash,
+    role: ROLES.PLATFORM_ADMIN,
+    adminCapabilities,
+  });
 
-  await recordAuditLog(req.user, "create_admin", "User", admin._id, null, { name, email, phone }, req);
+  await recordAuditLog(req.user, "create_admin", "User", admin._id, null, { name, email, phone, adminCapabilities }, req);
 
   const result = admin.toObject();
   delete result.passwordHash;
   return created(res, result, "Admin account created");
+});
+
+const listAdminCapabilities = asyncHandler(async (req, res) => {
+  return ok(res, ALL_ADMIN_CAPABILITIES);
+});
+
+const updateAdminCapabilities = asyncHandler(async (req, res) => {
+  const { adminCapabilities } = req.body;
+  const admin = await User.findOne({ _id: req.params.id, role: ROLES.PLATFORM_ADMIN });
+  if (!admin) throw new ApiError(404, "NOT_FOUND", "Admin account not found");
+
+  const before = { adminCapabilities: admin.adminCapabilities };
+  admin.adminCapabilities = adminCapabilities;
+  await admin.save();
+
+  await recordAuditLog(req.user, "update_admin_capabilities", "User", admin._id, before, { adminCapabilities }, req);
+  return ok(res, admin, "Admin capabilities updated");
 });
 
 const suspendUser = asyncHandler(async (req, res) => {
@@ -470,6 +495,8 @@ const updateSettings = asyncHandler(async (req, res) => {
 module.exports = {
   listUsers,
   createAdmin,
+  listAdminCapabilities,
+  updateAdminCapabilities,
   suspendUser,
   reactivateUser,
   pendingDoctors,

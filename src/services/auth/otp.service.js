@@ -10,7 +10,7 @@ function generateOtpCode() {
   return crypto.randomInt(100000, 999999).toString();
 }
 
-async function requestOtp(identifier, purpose) {
+async function requestOtp(identifier, purpose, platform) {
   const code = generateOtpCode();
   const otpHash = await bcrypt.hash(code, 10);
   await OtpToken.create({
@@ -19,7 +19,7 @@ async function requestOtp(identifier, purpose) {
     purpose,
     expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000),
   });
-  await sendOtp(identifier, code, purpose);
+  await sendOtp(identifier, code, purpose, platform);
   return { expiresInMinutes: OTP_TTL_MINUTES };
 }
 
