@@ -40,6 +40,9 @@ const consultationSessionSchema = new mongoose.Schema(
         sender: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
         message: String,
         sentAt: { type: Date, default: Date.now },
+        // null = visible to everyone in the call; a userId = a private 1:1 message only
+        // the sender and this recipient can see — see getChatHistory's filtering.
+        to: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
       },
     ],
     sharedFiles: [
@@ -49,6 +52,10 @@ const consultationSessionSchema = new mongoose.Schema(
       },
     ],
     endReason: String,
+    // Host-only toggle (the treating doctor) — blocks new invites while true. Existing
+    // participants can always rejoin regardless; there's no open/anonymous join path to
+    // gate here since growth only ever happens through the invite flow below.
+    locked: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

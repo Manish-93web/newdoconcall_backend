@@ -14,5 +14,6 @@ router.post("/:id/end", ctrl.end);
 router.post("/:id/invite", ctrl.invite);
 router.patch("/:id/invite/accept", ctrl.acceptInvite);
 router.patch("/:id/invite/decline", ctrl.declineInvite);
+router.patch("/:id/lock", ctrl.setLock);
 
 module.exports = router;

@@ -79,17 +79,33 @@ const iceServers = asyncHandler(async (req, res) => {
 });
 
 const getOne = asyncHandler(async (req, res) => {
-  const session = await ConsultationSession.findById(req.params.id).populate("appointment");
+  const session = await ConsultationSession.findById(req.params.id)
+    .populate("appointment")
+    .populate("participants.user", "name");
   if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
   await loadSessionForAnyParticipant(session, req.user);
-  return ok(res, session);
+
+  // Same private-message filtering as getChatHistory — both useConsultCall hooks fetch
+  // their initial chatTranscript from this endpoint, not getChatHistory, so it needs the
+  // same guarantee that a targeted message never reaches anyone but its two parties.
+  const payload = session.toObject();
+  payload.chatTranscript = payload.chatTranscript.filter(
+    (entry) => !entry.to || entry.to.toString() === req.user.id || entry.sender.toString() === req.user.id
+  );
+  return ok(res, payload);
 });
 
 const getChatHistory = asyncHandler(async (req, res) => {
   const session = await ConsultationSession.findById(req.params.id).select("appointment participants chatTranscript");
   if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
   await loadSessionForAnyParticipant(session, req.user);
-  return ok(res, session.chatTranscript);
+
+  // Private (targeted) messages are only visible to their sender and recipient — everyone
+  // else's history fetch filters them out entirely, not just hides them client-side.
+  const visible = session.chatTranscript.filter(
+    (entry) => !entry.to || entry.to.toString() === req.user.id || entry.sender.toString() === req.user.id
+  );
+  return ok(res, visible);
 });
 
 const shareFile = asyncHandler(async (req, res) => {
@@ -110,6 +126,14 @@ const end = asyncHandler(async (req, res) => {
   const session = await ConsultationSession.findById(req.params.id);
   if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
   await loadSessionForAnyParticipant(session, req.user);
+
+  // Mirrors signaling.socket.js's consult:end guard — an invited specialist hanging up must
+  // not terminate the doctor's and patient's session too; their client already left via
+  // consult:leave, so this call is a no-op for them rather than an error.
+  const participant = session.participants.find((p) => p.user.toString() === req.user.id);
+  if (participant?.role === "specialist") {
+    return ok(res, session, "Left consultation");
+  }
 
   session.state = CONSULTATION_STATES.ENDED;
   session.endedAt = new Date();
@@ -138,6 +162,9 @@ const invite = asyncHandler(async (req, res) => {
   const { isDoctor } = await loadAppointmentForParticipant(session.appointment._id, req.user);
   if (!isDoctor) throw new ApiError(403, "FORBIDDEN", "Only the treating doctor can invite another doctor");
 
+  if (session.locked) {
+    throw new ApiError(409, "SESSION_LOCKED", "This consultation is locked to new participants");
+  }
   if (session.participants.length + session.pendingInvites.length >= MAX_CONSULT_PARTICIPANTS) {
     throw new ApiError(409, "SESSION_FULL", "This consultation has reached its participant limit");
   }
@@ -163,6 +190,21 @@ const invite = asyncHandler(async (req, res) => {
   });
 
   return ok(res, session, "Invite sent");
+});
+
+// Host-only toggle blocking new invites (existing participants can always rejoin) —
+// see the model comment on ConsultationSession.locked.
+const setLock = asyncHandler(async (req, res) => {
+  const { locked } = req.body;
+  const session = await ConsultationSession.findById(req.params.id).populate("appointment");
+  if (!session) throw new ApiError(404, "NOT_FOUND", "Consultation session not found");
+
+  const { isDoctor } = await loadAppointmentForParticipant(session.appointment._id, req.user);
+  if (!isDoctor) throw new ApiError(403, "FORBIDDEN", "Only the treating doctor can lock this consultation");
+
+  session.locked = !!locked;
+  await session.save();
+  return ok(res, session, session.locked ? "Consultation locked" : "Consultation unlocked");
 });
 
 // Doctors this session has an open invite for — lets a client show a list/badge rather
@@ -215,4 +257,5 @@ module.exports = {
   listMyInvites,
   acceptInvite,
   declineInvite,
+  setLock,
 };
